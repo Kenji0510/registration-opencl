@@ -1,0 +1,13 @@
+[package]
+name = "registration_opencl"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+
+ocl = "0.19.7"
+ndarray = { version = "0.15", features = ["blas", "rayon"] }
+ndarray-linalg = { version = "0.16", features = ["openblas-system"] }
+
+pcd-rs = { version = "0.11", features = ["derive"] }
