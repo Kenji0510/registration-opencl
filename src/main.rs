@@ -21,7 +21,7 @@ use registration_opencl::{
 const VOXEL_SIZE: f32 = 0.5;
 const WARMUP_ITERATIONS: usize = 3;
 const BENCHMARK_ITERATIONS: usize = 10;
-const GICP_MAX_ITERATIONS: usize = 120;
+const GICP_MAX_ITERATIONS: usize = 60;
 
 fn main() -> Result<()> {
     check_device_info()?;
@@ -55,6 +55,8 @@ fn main() -> Result<()> {
     println!("Loaded source PCD from: {}", source_pcd_path);
     println!("Target points: {}", target_pts.nrows());
     println!("Loaded target PCD from: {}", target_pcd_path);
+
+    let start = std::time::Instant::now();
 
     // Center the source points to target points
     let (_, overlaped_source_pts) = registration_pcd_center(&source_pts, &target_pts);
@@ -172,6 +174,9 @@ fn main() -> Result<()> {
         // break;
     }
 
+    let elapsed = start.elapsed();
+    println!("Total time: {:.2?}", elapsed);
+
     // <!--- DEBUG --->
     let transformed_original_source_pts = convert_dtoh(&d_v_source_pts, v_source_pts_num)
         .context("Failed to convert device to host")?;
@@ -205,6 +210,7 @@ fn main() -> Result<()> {
     let output_path = format!("data/output/test/test-gicp-v-{}-iter-{}.pcd", VOXEL_SIZE, GICP_MAX_ITERATIONS);
     save_pcd_xyzrgb(
         &combined_pcd, &output_path)?;
+    println!("Saved combined PCD to: {}", output_path);
 
     // <!--- DEBUG --->
 
