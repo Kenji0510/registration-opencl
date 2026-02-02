@@ -59,12 +59,8 @@ impl OclSearchContext {
             .local_work_size(1)
             .arg(&dummy_f32) // Source points
             .arg(0) // num_source_points
-            .arg(0.0f32) // Voxel size
-            .arg(&dummy_u64) // Target points
-            .arg(&dummy_f32) // Target centroids
-            .arg(&dummy_i32) // Target_counts
-            .arg(&dummy_i32) // Table remap
-            .arg(0) // table size
+            .arg(&dummy_f32) // Target points
+            .arg(0) // num_target_points
             .arg(&dummy_i32) // out_indices
             .arg(&dummy_f32) // out_dists
             .build()
@@ -104,8 +100,8 @@ impl OclSearchContext {
         &mut self,
         source_pts: &Buffer<f32>,
         num_source: usize,
-        voxel_size: f32,
-        target_voxel_ctx: &OclVoxelContext,
+        target_pts: &Buffer<f32>,
+        num_target: usize,
     ) -> Result<(Buffer<i32>, Buffer<f32>, Vec<i32>, Vec<f32>)> {
         if num_source == 0 {
             anyhow::bail!("Number of source points is zero");
@@ -125,24 +121,6 @@ impl OclSearchContext {
             MemFlags::new().read_write(),
         )?;
 
-        let d_table_keys = target_voxel_ctx
-            .buf_table_keys
-            .as_ref()
-            .context("Target voxel context table keys buffer is None")?;
-        let d_table_centroids = target_voxel_ctx
-            .buf_table_centroids
-            .as_ref()
-            .context("Target voxel context table centroids buffer is None")?;
-        let d_table_counts = target_voxel_ctx
-            .buf_table_counts
-            .as_ref()
-            .context("Target voxel context table counts buffer is None")?;
-        let d_table_remap = target_voxel_ctx
-            .buf_table_remap
-            .as_ref()
-            .context("Target voxel context table remap buffer is None")?;
-        let table_size = target_voxel_ctx.table_size as i32;
-
         let d_indices = self.buf_indices.as_mut().unwrap();
         let d_dists = self.buf_dists.as_mut().unwrap();
 
@@ -156,28 +134,16 @@ impl OclSearchContext {
             .set_arg(1, num_source as u32)
             .context("Failed to set num_source_points arg")?;
         self.kernel_func
-            .set_arg(2, voxel_size)
-            .context("Failed to set voxel_size arg")?;
+            .set_arg(2, target_pts)
+            .context("Failed to set target_pts arg")?;
         self.kernel_func
-            .set_arg(3, d_table_keys)
-            .context("Failed to set target_points arg")?;
+            .set_arg(3, num_target as u32)
+            .context("Failed to set num_target_points arg")?;
         self.kernel_func
-            .set_arg(4, d_table_centroids)
-            .context("Failed to set target_centroids arg")?;
-        self.kernel_func
-            .set_arg(5, d_table_counts)
-            .context("Failed to set target_counts arg")?;
-        self.kernel_func
-            .set_arg(6, d_table_remap)
-            .context("Failed to set table_remap arg")?;
-        self.kernel_func
-            .set_arg(7, table_size)
-            .context("Failed to set table_size arg")?;
-        self.kernel_func
-            .set_arg(8, d_indices)
+            .set_arg(4, d_indices)
             .context("Failed to set out_indices arg")?;
         self.kernel_func
-            .set_arg(9, d_dists)
+            .set_arg(5, d_dists)
             .context("Failed to set out_dists arg")?;
 
         unsafe {

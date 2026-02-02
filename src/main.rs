@@ -129,8 +129,8 @@ fn main() -> Result<()> {
         .compute_find_nearest_neighbor(
             &d_transformed_source_pts,
             v_source_pts_num,
-            VOXEL_SIZE,
-            &gpu_voxel,
+            &d_v_target_pts,
+            v_target_pts_num,
         )
         .context("Failed to compute nearest neighbor")?;
 
