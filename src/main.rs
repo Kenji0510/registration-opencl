@@ -32,6 +32,8 @@ fn main() -> Result<()> {
 
     let mut gpu_voxel =
         OclVoxelContext::new(ocl_runtime.clone()).expect("Failed to create OclVoxelContext");
+    let mut gpu_covs =
+        OclCovContext::new(ocl_runtime.clone()).expect("Failed to create OclCovContext");
 
     let source_pcd_path = "data/input/merged_until_650-20251205-02-H927.pcd";
     let source_pcd = load_pcd_xyzrgb(source_pcd_path).expect("Failed to load initial PCD file");
@@ -86,6 +88,14 @@ fn main() -> Result<()> {
         target_pts.nrows(),
         v_target_pts_num
     );
+
+    // Compute covariances
+    let _ = gpu_covs
+        .compute_covariances(&d_v_source_pts, v_source_pts_num)
+        .context("Failed to compute covariances")?;
+    let _ = gpu_covs
+        .compute_covariances(&d_v_target_pts, v_target_pts_num)
+        .context("Failed to compute covariances")?;
 
     // let mut gpu_voxel =
     //     OclVoxelContext::new(ocl_runtime.clone()).expect("Failed to create OclVoxelContext");
