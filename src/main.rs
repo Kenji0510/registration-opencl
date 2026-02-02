@@ -21,6 +21,7 @@ use registration_opencl::{
 const VOXEL_SIZE: f32 = 0.25;
 const WARMUP_ITERATIONS: usize = 3;
 const BENCHMARK_ITERATIONS: usize = 10;
+const GICP_MAX_ITERATIONS: usize = 5;
 
 fn main() -> Result<()> {
     check_device_info()?;
@@ -38,6 +39,8 @@ fn main() -> Result<()> {
         .expect("Failed to create OclTransformContext");
     let mut gpu_search =
         OclSearchContext::new(ocl_runtime.clone()).expect("Failed to create OclSearchContext");
+    let mut gpu_gicp =
+        OclGicpContext::new(ocl_runtime.clone()).expect("Failed to create OclGicpContext");
 
     let source_pcd_path = "data/input/merged_until_650-20251205-02-H927.pcd";
     let source_pcd = load_pcd_xyzrgb(source_pcd_path).expect("Failed to load initial PCD file");
@@ -115,6 +118,7 @@ fn main() -> Result<()> {
     transform[[1, 1]] = angle.cos(); // cos(90°) = 0
     transform[[0, 3]] = 2.0; // X方向に2m移動
 
+    // <!--- DEBUG --->
     let (d_transformed_source_pts, d_transformed_source_covs) = gpu_transform
         .apply_transform(
             &d_v_source_pts,
@@ -123,9 +127,10 @@ fn main() -> Result<()> {
             &transform,
         )
         .context("Failed to apply transform")?;
+    // <!--- DEBUG --->
 
     // Compute to find nearest neighbor pts
-    let (d_indices, d_dists_sq, indices, dist_sq) = gpu_search
+    let (d_indices, d_dists_sq, indices, dists_sq) = gpu_search
         .compute_find_nearest_neighbor(
             &d_transformed_source_pts,
             v_source_pts_num,
@@ -133,6 +138,64 @@ fn main() -> Result<()> {
             v_target_pts_num,
         )
         .context("Failed to compute nearest neighbor")?;
+
+    // Debug
+    let max_dist2: f32 = 2.0;
+    let valid_pairs = indices
+        .iter()
+        .zip(dists_sq.iter())
+        .filter(|(idx, dist)| **idx >= 0 && **dist <= max_dist2)
+        .count();
+    println!(
+        "Iteration {}: Found {} nearest neighbor correspondences",
+        1, valid_pairs
+    );
+
+    // Compute GICP
+    let (h_matrix, b_vector) = gpu_gicp
+        .compute_gicp(
+            &d_transformed_source_pts,
+            &d_transformed_source_covs,
+            &d_v_target_pts,
+            &d_target_covs,
+            &d_indices,
+            &d_dists_sq,
+            VOXEL_SIZE * VOXEL_SIZE,
+        )
+        .context("Failed to calculate GICP")?;
+
+    let delta_t = solve_linear_system_6x6(h_matrix, b_vector)?;
+
+    // <!--- DEBUG --->
+    let transformed_original_source_pts = convert_dtoh(&d_transformed_source_pts, v_source_pts_num)
+        .context("Failed to convert device to host")?;
+
+    let transformed_original_source_pcd =
+        convert_array2_to_pcd(&transformed_original_source_pts, 255, 0, 0); // Red color
+    // <!--- DEBUG --->
+
+    let (d_final_transformed_source_pts, d_final_transformed_source_covs) = gpu_transform
+        .apply_transform(&d_v_source_pts, &d_source_covs, v_source_pts_num, &delta_t)
+        .context("Failed to apply transform")?;
+
+    // <!--- DEBUG --->
+    let final_transformed_source_pts =
+        convert_dtoh(&d_final_transformed_source_pts, v_source_pts_num)
+            .context("Failed to convert device to host")?;
+
+    let final_transformed_source_pcd =
+        convert_array2_to_pcd(&final_transformed_source_pts, 0, 255, 0); // Green color
+    let target_pcd = convert_array2_to_pcd(&target_pts, 0, 0, 255); // Blue color
+
+    let mut combined_pcd = transformed_original_source_pcd.clone();
+    combined_pcd.extend(final_transformed_source_pcd);
+    combined_pcd.extend(target_pcd);
+
+    let output_path = format!("data/output/test/test-gicp.pcd");
+    save_pcd_xyzrgb(
+        &combined_pcd, &output_path)?;
+
+    // <!--- DEBUG --->
 
     // let mut gpu_voxel =
     //     OclVoxelContext::new(ocl_runtime.clone()).expect("Failed to create OclVoxelContext");
