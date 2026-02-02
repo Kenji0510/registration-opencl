@@ -1,12 +1,11 @@
 use anyhow::Result;
 use ndarray::Array2;
-use ocl::{Buffer};
-
+use ocl::Buffer;
 
 pub fn convert_dtoh(buffer: &Buffer<f32>, pts_num: usize) -> Result<Array2<f32>> {
     let buffer_len = buffer.len();
     let expected_len = pts_num * 3;
-    
+
     // バッファサイズが期待値より小さい場合はエラー
     if buffer_len < expected_len {
         eprintln!(
@@ -15,7 +14,9 @@ pub fn convert_dtoh(buffer: &Buffer<f32>, pts_num: usize) -> Result<Array2<f32>>
         );
         return Err(anyhow::anyhow!(
             "Buffer too small: buffer has {} elements, but {} needed (pts_num={} * 3)",
-            buffer_len, expected_len, pts_num
+            buffer_len,
+            expected_len,
+            pts_num
         ));
     }
 

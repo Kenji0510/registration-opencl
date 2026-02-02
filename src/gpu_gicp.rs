@@ -4,8 +4,6 @@ use ocl::{Buffer, Kernel, MemFlags, OclPrm, Program, Queue};
 
 use crate::ocl_context::OclRuntime;
 
-
-
 const KERNEL_SRC: &str = include_str!("kernels/gicp.cl");
 
 fn round_up(x: usize, multiple: usize) -> usize {
@@ -116,19 +114,9 @@ impl OclGicpContext {
 
         let queue = self.rt.queue.clone();
 
-        Self::ensure_buffer(
-            &queue, 
-            &mut self.buf_h, 
-            36, 
-            MemFlags::new().read_write()
-        )?;
+        Self::ensure_buffer(&queue, &mut self.buf_h, 36, MemFlags::new().read_write())?;
 
-        Self::ensure_buffer(
-            &queue, 
-            &mut self.buf_b, 
-            6, 
-            MemFlags::new().read_write()
-        )?;
+        Self::ensure_buffer(&queue, &mut self.buf_b, 6, MemFlags::new().read_write())?;
 
         {
             let d_h = self.buf_h.as_ref().unwrap();
@@ -180,8 +168,7 @@ impl OclGicpContext {
                     .context("Failed to enqueue GICP kernel")?;
             }
 
-            queue.finish()
-                .context("Failed to enqueue kernel")?;
+            queue.finish().context("Failed to enqueue kernel")?;
         }
 
         let d_H = self.buf_h.as_ref().unwrap();
@@ -204,9 +191,10 @@ impl OclGicpContext {
 
         let h_matrix = Array2::from_shape_vec((6, 6), h_vec_f64)
             .context("Failed to create H matrix ndarray")?;
-        let b_vector = Array1::from_vec(h_b_f64).into_dimensionality::<ndarray::Ix1>()
+        let b_vector = Array1::from_vec(h_b_f64)
+            .into_dimensionality::<ndarray::Ix1>()
             .context("Failed to create b vector ndarray")?;
 
-        Ok((h_matrix, b_vector))            
+        Ok((h_matrix, b_vector))
     }
 }
