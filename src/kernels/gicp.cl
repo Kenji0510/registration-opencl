@@ -3,6 +3,8 @@
 #pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_global_int32_extended_atomics : enable
 
+#define BLOCK_SIZE 64
+
 static inline int float_as_int(float x) { 
     return as_int(x);
 }
@@ -62,7 +64,7 @@ __kernel void compute_gicp_linear_system(
     __global const float* restrict d_src_covs,  // num_source * 9
     __global const float* restrict d_tgt_pts,  // num_target * 3
     __global const float* restrict d_tgt_covs,  // num_target * 9
-    __global const float* restrict d_indices,  // num_source
+    __global const int* restrict d_indices,  // num_source
     __global const float* restrict d_dists_sq,  // num_source
     const int num_source,
     const int num_target,
@@ -72,7 +74,8 @@ __kernel void compute_gicp_linear_system(
 ) {
     int gid = (int)get_global_id(0);
     int lid = (int)get_local_id(0);
-    int lsize = (int)get_local_size(0);
+    // int lsize = (int)get_local_size(0);
+    int lsize = BLOCK_SIZE;
 
     float local_H[36];
     float local_b[6];
@@ -101,9 +104,9 @@ __kernel void compute_gicp_linear_system(
             float Omega[9];
             if (invert3x3Sym_safe(C_sum, Omega)) {
                 float err[3] = {
-                    ps[0] - pt[0],
-                    ps[1] - pt[1],
-                    ps[2] - pt[2]
+                    pt[0] - ps[0],
+                    pt[1] - ps[1],
+                    pt[2] - ps[2]
                 };
                 float We[3];
                 mul3(Omega, err, We);
@@ -169,17 +172,20 @@ __kernel void compute_gicp_linear_system(
         }
     }
 
-    __local float lH[256 * 36]; // adjust according to max work-group size
-    __local float lb[256 * 6];
+    __local float lH[BLOCK_SIZE * 36];
+    __local float lb[BLOCK_SIZE * 6];
 
     int baseH = lid * 36;
     int baseB = lid * 6;
+    
+    // Copy to local
     for (int i=0;i<36;i++) lH[baseH+i] = local_H[i];
     for (int i=0;i<6;i++)  lb[baseB+i] = local_b[i];
+    
     barrier(CLK_LOCAL_MEM_FENCE);
 
-    // tree reduction
-    for (int offset = lsize >> 1; offset > 0; offset >>= 1) {
+    // Tree reduction
+    for (int offset = BLOCK_SIZE >> 1; offset > 0; offset >>= 1) {
         if (lid < offset) {
             int otherH = (lid + offset) * 36;
             int otherB = (lid + offset) * 6;

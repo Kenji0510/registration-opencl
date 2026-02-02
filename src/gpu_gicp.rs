@@ -56,7 +56,7 @@ impl OclGicpContext {
             .arg(&dummy_f32) // num_source * 9
             .arg(&dummy_f32) // num_target * 3
             .arg(&dummy_f32) // num_target * 9
-            .arg(&dummy_f32) // source_indices
+            .arg(&dummy_i32) // source_indices
             .arg(&dummy_f32) // source_dists_sq
             .arg(0) // num_source
             .arg(0) // num_target
@@ -107,8 +107,6 @@ impl OclGicpContext {
         d_distances: &Buffer<f32>,
         max_dist_sq: f32,
     ) -> Result<(Array2<f64>, Array1<f64>)> {
-        // let num_source = d_source_pts.len() / 3;
-        // let num_target = d_target_pts.len() / 3;
         println!("GICP: num_source = {}, num_target = {}", num_source, num_target);
 
         if num_source == 0 || num_target == 0 {
@@ -125,7 +123,7 @@ impl OclGicpContext {
             let d_h = self.buf_h.as_ref().unwrap();
             let d_b = self.buf_b.as_ref().unwrap();
 
-            let lws = 256 as usize;
+            let lws = 64 as usize;
             let gws = round_up(num_source, lws);
 
             self.kernel_func

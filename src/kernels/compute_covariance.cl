@@ -188,8 +188,8 @@ __kernel void compute_covariance(
     if (evals[1] < evals[min_idx]) min_idx = 1;
     if (evals[2] < evals[min_idx]) min_idx = 2;
 
-    float reg_evals[3] = { 1.0f, 1.0f, 1.0f };
-    reg_evals[min_idx] = 1e-3f;
+    float reg_evals[3] = { 5.0f, 5.0f, 2.0f };
+    // reg_evals[min_idx] = 1e-3f;
 
     // reconstruct C = V * diag(reg_evals) * V^T
     float r00 = 0.0f, r01 = 0.0f, r02 = 0.0f;
