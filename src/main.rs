@@ -34,6 +34,8 @@ fn main() -> Result<()> {
         OclVoxelContext::new(ocl_runtime.clone()).expect("Failed to create OclVoxelContext");
     let mut gpu_covs =
         OclCovContext::new(ocl_runtime.clone()).expect("Failed to create OclCovContext");
+    let mut gpu_transform = OclTransformContext::new(ocl_runtime.clone())
+        .expect("Failed to create OclTransformContext");
 
     let source_pcd_path = "data/input/merged_until_650-20251205-02-H927.pcd";
     let source_pcd = load_pcd_xyzrgb(source_pcd_path).expect("Failed to load initial PCD file");
@@ -72,7 +74,11 @@ fn main() -> Result<()> {
 
     // Voxel downsample
     let (d_v_source_pts, v_source_pts_num) = gpu_voxel
-        .voxel_downsample(&overlaped_source_pts, overlaped_source_pts.nrows(), VOXEL_SIZE)
+        .voxel_downsample(
+            &overlaped_source_pts,
+            overlaped_source_pts.nrows(),
+            VOXEL_SIZE,
+        )
         .context("Failed to compute voxel")?;
     println!(
         "Voxel downsampled source points: {} -> {}",
@@ -90,12 +96,31 @@ fn main() -> Result<()> {
     );
 
     // Compute covariances
-    let _ = gpu_covs
+    let d_source_covs = gpu_covs
         .compute_covariances(&d_v_source_pts, v_source_pts_num)
         .context("Failed to compute covariances")?;
-    let _ = gpu_covs
+    let d_target_covs = gpu_covs
         .compute_covariances(&d_v_target_pts, v_target_pts_num)
         .context("Failed to compute covariances")?;
+
+    // Transform each points
+    // 90度回転（Z軸周り）+ X方向に2m移動
+    let mut transform = Array2::<f32>::eye(4);
+    let angle = std::f32::consts::FRAC_PI_2; // 90度
+    transform[[0, 0]] = angle.cos(); // cos(90°) = 0
+    transform[[0, 1]] = -angle.sin(); // -sin(90°) = -1
+    transform[[1, 0]] = angle.sin(); // sin(90°) = 1
+    transform[[1, 1]] = angle.cos(); // cos(90°) = 0
+    transform[[0, 3]] = 2.0; // X方向に2m移動
+
+    let (d_transformed_source_pts, d_transformed_source_covs) = gpu_transform
+        .apply_transform(
+            &d_v_source_pts,
+            &d_source_covs,
+            v_source_pts_num,
+            &transform,
+        )
+        .context("Failed to apply transform")?;
 
     // let mut gpu_voxel =
     //     OclVoxelContext::new(ocl_runtime.clone()).expect("Failed to create OclVoxelContext");
