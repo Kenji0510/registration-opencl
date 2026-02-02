@@ -99,14 +99,17 @@ impl OclGicpContext {
         &mut self,
         d_source_pts: &Buffer<f32>,
         d_source_covs: &Buffer<f32>,
+        num_source: usize,
         d_target_pts: &Buffer<f32>,
         d_target_covs: &Buffer<f32>,
+        num_target: usize,
         d_indices: &Buffer<i32>,
         d_distances: &Buffer<f32>,
         max_dist_sq: f32,
     ) -> Result<(Array2<f64>, Array1<f64>)> {
-        let num_source = d_source_pts.len() / 3;
-        let num_target = d_target_pts.len() / 3;
+        // let num_source = d_source_pts.len() / 3;
+        // let num_target = d_target_pts.len() / 3;
+        println!("GICP: num_source = {}, num_target = {}", num_source, num_target);
 
         if num_source == 0 || num_target == 0 {
             anyhow::bail!("Empty point cloud");

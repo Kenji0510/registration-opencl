@@ -17,7 +17,7 @@ __kernel void find_nearest_neighbor(
     float pz = source_pts[idx * 3 + 2];
 
     float best_dist_sq = 1.0e30f;
-    int best_table_idx = -1;
+    int best_target_idx = -1;
 
     for (int j = 0; j < num_target; j++) {
         float tx = target_pts[j * 3 + 0];
@@ -32,10 +32,10 @@ __kernel void find_nearest_neighbor(
 
         if (dist_sq < best_dist_sq) {
             best_dist_sq = dist_sq;
-            best_table_idx = j;
+            best_target_idx = j;
         }
     }
 
     out_dists_sq[idx] = best_dist_sq;
-    out_indices[idx] = best_table_idx;
+    out_indices[idx] = best_target_idx;
 }

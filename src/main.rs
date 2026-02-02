@@ -56,6 +56,32 @@ fn main() -> Result<()> {
     println!("Target points: {}", target_pts.nrows());
     println!("Loaded target PCD from: {}", target_pcd_path);
 
+    // <!--- DEBUG --->
+    // Transform each points
+    // 90度回転（Z軸周り）+ X方向に2m移動
+    let mut transform = Array2::<f32>::eye(4);
+    let angle = std::f32::consts::FRAC_PI_2; // 90度
+    transform[[0, 0]] = angle.cos(); // cos(90°) = 0
+    transform[[0, 1]] = -angle.sin(); // -sin(90°) = -1
+    transform[[1, 0]] = angle.sin(); // sin(90°) = 1
+    transform[[1, 1]] = angle.cos(); // cos(90°) = 0
+    transform[[0, 3]] = 2.0; // X方向に2m移動
+
+    let mut source_pts_transformed = Array2::<f32>::zeros(source_pts.dim());
+    for i in 0..source_pts.nrows() {
+        let x = source_pts[[i, 0]];
+        let y = source_pts[[i, 1]];
+        let z = source_pts[[i, 2]];
+        
+        source_pts_transformed[[i, 0]] = transform[[0, 0]] * x + transform[[0, 1]] * y + transform[[0, 2]] * z + transform[[0, 3]];
+        source_pts_transformed[[i, 1]] = transform[[1, 0]] * x + transform[[1, 1]] * y + transform[[1, 2]] * z + transform[[1, 3]];
+        source_pts_transformed[[i, 2]] = transform[[2, 0]] * x + transform[[2, 1]] * y + transform[[2, 2]] * z + transform[[2, 3]];
+    }
+    let source_pts = source_pts_transformed;
+    let debug_source_pts = source_pts.clone();
+    // <!--- DEBUG --->
+
+    // let source_centroid = calculate_centroid(&source_pts);
     let source_centroid = calculate_centroid(&source_pts);
     let target_centroid = calculate_centroid(&target_pts);
 
@@ -108,31 +134,31 @@ fn main() -> Result<()> {
         .compute_covariances(&d_v_target_pts, v_target_pts_num)
         .context("Failed to compute covariances")?;
 
-    // Transform each points
-    // 90度回転（Z軸周り）+ X方向に2m移動
-    let mut transform = Array2::<f32>::eye(4);
-    let angle = std::f32::consts::FRAC_PI_2; // 90度
-    transform[[0, 0]] = angle.cos(); // cos(90°) = 0
-    transform[[0, 1]] = -angle.sin(); // -sin(90°) = -1
-    transform[[1, 0]] = angle.sin(); // sin(90°) = 1
-    transform[[1, 1]] = angle.cos(); // cos(90°) = 0
-    transform[[0, 3]] = 2.0; // X方向に2m移動
+    // // Transform each points
+    // // 90度回転（Z軸周り）+ X方向に2m移動
+    // let mut transform = Array2::<f32>::eye(4);
+    // let angle = std::f32::consts::FRAC_PI_2; // 90度
+    // transform[[0, 0]] = angle.cos(); // cos(90°) = 0
+    // transform[[0, 1]] = -angle.sin(); // -sin(90°) = -1
+    // transform[[1, 0]] = angle.sin(); // sin(90°) = 1
+    // transform[[1, 1]] = angle.cos(); // cos(90°) = 0
+    // transform[[0, 3]] = 2.0; // X方向に2m移動
 
-    // <!--- DEBUG --->
-    let (d_transformed_source_pts, d_transformed_source_covs) = gpu_transform
-        .apply_transform(
-            &d_v_source_pts,
-            &d_source_covs,
-            v_source_pts_num,
-            &transform,
-        )
-        .context("Failed to apply transform")?;
-    // <!--- DEBUG --->
+    // // <!--- DEBUG --->
+    // let (d_transformed_source_pts, d_transformed_source_covs) = gpu_transform
+    //     .apply_transform(
+    //         &d_v_source_pts,
+    //         &d_source_covs,
+    //         v_source_pts_num,
+    //         &transform,
+    //     )
+    //     .context("Failed to apply transform")?;
+    // // <!--- DEBUG --->
 
     // Compute to find nearest neighbor pts
     let (d_indices, d_dists_sq, indices, dists_sq) = gpu_search
         .compute_find_nearest_neighbor(
-            &d_transformed_source_pts,
+            &d_v_source_pts,
             v_source_pts_num,
             &d_v_target_pts,
             v_target_pts_num,
@@ -140,7 +166,7 @@ fn main() -> Result<()> {
         .context("Failed to compute nearest neighbor")?;
 
     // Debug
-    let max_dist2: f32 = 2.0;
+    let max_dist2: f32 = VOXEL_SIZE * VOXEL_SIZE * 2.0;
     let valid_pairs = indices
         .iter()
         .zip(dists_sq.iter())
@@ -154,10 +180,12 @@ fn main() -> Result<()> {
     // Compute GICP
     let (h_matrix, b_vector) = gpu_gicp
         .compute_gicp(
-            &d_transformed_source_pts,
-            &d_transformed_source_covs,
+            &d_v_source_pts,
+            &d_source_covs,
+            v_source_pts_num,
             &d_v_target_pts,
             &d_target_covs,
+            v_target_pts_num,
             &d_indices,
             &d_dists_sq,
             VOXEL_SIZE * VOXEL_SIZE,
@@ -165,13 +193,16 @@ fn main() -> Result<()> {
         .context("Failed to calculate GICP")?;
 
     let delta_t = solve_linear_system_6x6(h_matrix, b_vector)?;
+    println!("Computed delta transform:\n{:?}", delta_t);
 
     // <!--- DEBUG --->
-    let transformed_original_source_pts = convert_dtoh(&d_transformed_source_pts, v_source_pts_num)
+    let transformed_original_source_pts = convert_dtoh(&d_v_source_pts, v_source_pts_num)
         .context("Failed to convert device to host")?;
 
+    // let transformed_original_source_pcd =
+    //     convert_array2_to_pcd(&transformed_original_source_pts, 255, 0, 0); // Red color
     let transformed_original_source_pcd =
-        convert_array2_to_pcd(&transformed_original_source_pts, 255, 0, 0); // Red color
+        convert_array2_to_pcd(&overlaped_source_pts, 255, 0, 0); // Red color
     // <!--- DEBUG --->
 
     let (d_final_transformed_source_pts, d_final_transformed_source_covs) = gpu_transform
@@ -186,8 +217,10 @@ fn main() -> Result<()> {
     let final_transformed_source_pcd =
         convert_array2_to_pcd(&final_transformed_source_pts, 0, 255, 0); // Green color
     let target_pcd = convert_array2_to_pcd(&target_pts, 0, 0, 255); // Blue color
-
-    let mut combined_pcd = transformed_original_source_pcd.clone();
+    
+    let debug_source_pcd = convert_array2_to_pcd(&debug_source_pts, 255, 0, 255); // Blue color
+    let mut combined_pcd = debug_source_pcd.clone();
+    combined_pcd.extend(transformed_original_source_pcd);
     combined_pcd.extend(final_transformed_source_pcd);
     combined_pcd.extend(target_pcd);
 
