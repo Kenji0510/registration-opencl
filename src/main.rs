@@ -36,6 +36,8 @@ fn main() -> Result<()> {
         OclCovContext::new(ocl_runtime.clone()).expect("Failed to create OclCovContext");
     let mut gpu_transform = OclTransformContext::new(ocl_runtime.clone())
         .expect("Failed to create OclTransformContext");
+    let mut gpu_search =
+        OclSearchContext::new(ocl_runtime.clone()).expect("Failed to create OclSearchContext");
 
     let source_pcd_path = "data/input/merged_until_650-20251205-02-H927.pcd";
     let source_pcd = load_pcd_xyzrgb(source_pcd_path).expect("Failed to load initial PCD file");
@@ -121,6 +123,16 @@ fn main() -> Result<()> {
             &transform,
         )
         .context("Failed to apply transform")?;
+
+    // Compute to find nearest neighbor pts
+    let (d_indices, d_dists_sq, indices, dist_sq) = gpu_search
+        .compute_find_nearest_neighbor(
+            &d_transformed_source_pts,
+            v_source_pts_num,
+            VOXEL_SIZE,
+            &gpu_voxel,
+        )
+        .context("Failed to compute nearest neighbor")?;
 
     // let mut gpu_voxel =
     //     OclVoxelContext::new(ocl_runtime.clone()).expect("Failed to create OclVoxelContext");
