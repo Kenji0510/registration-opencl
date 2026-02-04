@@ -5,23 +5,16 @@ use ndarray::{Array1, Array2, Axis, s};
 use ndarray_linalg::Solve;
 use ocl::{Device, Platform, core::DeviceInfo};
 use registration_opencl::{
-    convert_dtoh::convert_dtoh,
-    gpu_cov::OclCovContext,
-    gpu_gicp::OclGicpContext,
-    gpu_search::OclSearchContext,
-    gpu_transform::OclTransformContext,
-    gpu_voxel::OclVoxelContext,
-    ocl_context::OclRuntime,
-    operate_pcd_file::{
+    convert_dtoh::convert_dtoh, gpu_cov::OclCovContext, gpu_gicp::OclGicpContext, gpu_icp::{self, OclIcpContext}, gpu_normals::OclNormalsContext, gpu_search::OclSearchContext, gpu_search_neighbors::OclSearchNeighborsContext, gpu_transform::OclTransformContext, gpu_voxel::OclVoxelContext, ocl_context::OclRuntime, operate_pcd_file::{
         PointXYZ, PointXYZRGB, PointXYZT, load_pcd_xyz, load_pcd_xyzrgb, load_pcd_xyzt,
         save_pcd_xyzrgb,
-    },
+    }
 };
 
-const VOXEL_SIZE: f32 = 0.5;
+const VOXEL_SIZE: f32 = 0.25;
 const WARMUP_ITERATIONS: usize = 3;
 const BENCHMARK_ITERATIONS: usize = 10;
-const GICP_MAX_ITERATIONS: usize = 60;
+const GICP_MAX_ITERATIONS: usize =60;
 
 fn main() -> Result<()> {
     check_device_info()?;
@@ -35,12 +28,18 @@ fn main() -> Result<()> {
         OclVoxelContext::new(ocl_runtime.clone()).expect("Failed to create OclVoxelContext");
     let mut gpu_covs =
         OclCovContext::new(ocl_runtime.clone()).expect("Failed to create OclCovContext");
+    let mut gpu_normals = OclNormalsContext::new(ocl_runtime.clone())
+        .expect("Failed to create OclNormalsContext");
     let mut gpu_transform = OclTransformContext::new(ocl_runtime.clone())
         .expect("Failed to create OclTransformContext");
     let mut gpu_search =
         OclSearchContext::new(ocl_runtime.clone()).expect("Failed to create OclSearchContext");
+    let mut gpu_search_neighbors = OclSearchNeighborsContext::new(ocl_runtime.clone())
+        .expect("Failed to create OclSearchNeighborsContext");
     let mut gpu_gicp =
         OclGicpContext::new(ocl_runtime.clone()).expect("Failed to create OclGicpContext");
+    let mut gpu_icp =
+        OclIcpContext::new(ocl_runtime.clone()).expect("Failed to create OclIcpContext");
 
     let source_pcd_path = "data/input/aist/vggt-sansouken-room-scale-7_5_voxel_025_xyz_only.pcd";
     let source_pcd = load_pcd_xyz(source_pcd_path).expect("Failed to load initial PCD file");
@@ -92,7 +91,6 @@ fn main() -> Result<()> {
         .compute_covariances(&d_v_target_pts, v_target_pts_num)
         .context("Failed to compute covariances")?;
 
-
     let mut transform_matrix = Array2::<f32>::eye(4);
 
 
@@ -100,7 +98,6 @@ fn main() -> Result<()> {
     for i in 0..GICP_MAX_ITERATIONS {
         println!("\n=== GICP Iteration {} ===", i + 1);
     
-
         // Transform each points
         let (d_transformed_source_pts, d_transformed_source_covs) = gpu_transform
             .apply_transform(
@@ -121,8 +118,26 @@ fn main() -> Result<()> {
             )
             .context("Failed to compute nearest neighbor")?;
 
+        // Search neigghbors to compute normals
+        let (d_target_indices, d_target_dists_sq, _, _) = gpu_search_neighbors
+            .compute_find_neighbors(&d_v_target_pts, v_target_pts_num)
+            .context("Failed to compute self k-nearest neighbors")?;
+
+        // Compute normals
+        let d_target_normals = gpu_normals
+            .compute_normals(
+                &d_v_target_pts,
+                v_target_pts_num,
+                &d_target_indices,
+                0.0,
+                0.0,
+                0.0,
+            )
+            .context("Failed to compute normals")?;
+
         // Debug
-        let max_dist2: f32 = VOXEL_SIZE * VOXEL_SIZE * 2.0;
+        // let max_dist2: f32 = VOXEL_SIZE * VOXEL_SIZE * 2.0;
+        let max_dist2: f32 = VOXEL_SIZE * 1.5;
         let valid_pairs = indices
             .iter()
             .zip(dists_sq.iter())
@@ -147,6 +162,19 @@ fn main() -> Result<()> {
                 max_dist2,
             )
             .context("Failed to calculate GICP")?;
+
+        let (h_matrix, b_vector) = gpu_icp
+            .compute_icp(
+                &d_transformed_source_pts,
+                v_source_pts_num,
+                &d_v_target_pts,
+                &d_target_normals,
+                v_target_pts_num,
+                &d_indices,
+                &d_dists_sq,
+                max_dist2,
+            )
+            .context("Failed to calculate ICP")?;
 
         let delta_t = solve_linear_system_6x6(h_matrix, b_vector)?;
         transform_matrix = mat4_mul( &delta_t, &transform_matrix);
