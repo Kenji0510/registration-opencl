@@ -37,3 +37,23 @@ ICP time: 10.43ms
 ICP time (Per 1 iteration): 173.81µs
 Total time: 297.68ms
 ```
+
+# Radeon 780m
+```bash
+=== Process times ===
+Registration PCD Center time: 126.85µs
+Voxel time: 3.48ms
+Covariance time: 5.16ms
+Normal time: 14.05ms
+Transform time: 8.51ms
+Transform time (Per 1 iteration): 141.77µs
+Search Neighbor time: 138.58ms
+Search Neighbor time (Per 1 iteration): 2.31ms
+Search Neighbors time: 366.42ms
+Search Neighbors time (Per 1 iteration): 6.11ms
+GICP time: 0.00ns
+GICP time (Per 1 iteration): 0.00ns
+ICP time: 26.04ms
+ICP time (Per 1 iteration): 433.99µs
+Total time: 567.84ms
+```
