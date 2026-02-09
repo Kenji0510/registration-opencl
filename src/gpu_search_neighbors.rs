@@ -4,7 +4,7 @@ use ocl::{Buffer, Kernel, MemFlags, OclPrm, Program, Queue};
 use crate::{gpu_voxel::OclVoxelContext, ocl_context::OclRuntime};
 
 const KERNEL_SRC: &str = include_str!("kernels/search_neighbors.cl");
-const K: usize = 8;  // Make it the same as K in the kernel
+const K: usize = 8; // Make it the same as K in the kernel
 
 fn round_up(x: usize, multiple: usize) -> usize {
     if x % multiple == 0 {

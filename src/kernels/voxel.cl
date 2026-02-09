@@ -44,9 +44,10 @@ inline ulong cas_u64_local(volatile __local ulong* p, ulong expected, ulong desi
 }
 
 inline unsigned long compute_voxel_hash(float px, float py, float pz, float voxel_size) {
-    int vx = (int)floor(px / voxel_size);
-    int vy = (int)floor(py / voxel_size);
-    int vz = (int)floor(pz / voxel_size);
+    float inv_voxel = 1.0 / voxel_size;
+    int vx = convert_int_rtn(px * inv_voxel);
+    int vy = convert_int_rtn(py * inv_voxel);
+    int vz = convert_int_rtn(pz * inv_voxel);
     return ((unsigned long)vx * P1) ^ ((unsigned long)vy * P2) ^ ((unsigned long)vz * P3);
 }
 

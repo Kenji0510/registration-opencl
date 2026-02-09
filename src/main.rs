@@ -1,20 +1,46 @@
-use std::time::Instant;
+use std::{
+    os::unix::process,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result};
 use ndarray::{Array1, Array2, Axis, s};
 use ndarray_linalg::Solve;
 use ocl::{Device, Platform, core::DeviceInfo};
 use registration_opencl::{
-    convert_dtoh::convert_dtoh, gpu_cov::OclCovContext, gpu_gicp::OclGicpContext, gpu_icp::{self, OclIcpContext}, gpu_normals::OclNormalsContext, gpu_search::OclSearchContext, gpu_search_neighbors::OclSearchNeighborsContext, gpu_transform::OclTransformContext, gpu_voxel::OclVoxelContext, ocl_context::OclRuntime, operate_pcd_file::{
+    convert_dtoh::convert_dtoh,
+    gpu_cov::OclCovContext,
+    gpu_gicp::OclGicpContext,
+    gpu_icp::{self, OclIcpContext},
+    gpu_normals::OclNormalsContext,
+    gpu_search::OclSearchContext,
+    gpu_search_neighbors::OclSearchNeighborsContext,
+    gpu_transform::OclTransformContext,
+    gpu_voxel::OclVoxelContext,
+    ocl_context::OclRuntime,
+    operate_pcd_file::{
         PointXYZ, PointXYZRGB, PointXYZT, load_pcd_xyz, load_pcd_xyzrgb, load_pcd_xyzt,
         save_pcd_xyzrgb,
-    }
+    },
 };
 
 const VOXEL_SIZE: f32 = 0.25;
 const WARMUP_ITERATIONS: usize = 3;
 const BENCHMARK_ITERATIONS: usize = 10;
-const GICP_MAX_ITERATIONS: usize =60;
+const GICP_MAX_ITERATIONS: usize = 60;
+
+#[derive(Clone)]
+struct ProcessTimes {
+    registration_pcd_center_time: Duration,
+    voxel_time: Duration,
+    cov_time: Duration,
+    normal_time: Duration,
+    transform_time: Duration,
+    search_neighbor_time: Duration,
+    search_neighbors_time: Duration,
+    gicp_time: Duration,
+    icp_time: Duration,
+}
 
 fn main() -> Result<()> {
     check_device_info()?;
@@ -28,8 +54,8 @@ fn main() -> Result<()> {
         OclVoxelContext::new(ocl_runtime.clone()).expect("Failed to create OclVoxelContext");
     let mut gpu_covs =
         OclCovContext::new(ocl_runtime.clone()).expect("Failed to create OclCovContext");
-    let mut gpu_normals = OclNormalsContext::new(ocl_runtime.clone())
-        .expect("Failed to create OclNormalsContext");
+    let mut gpu_normals =
+        OclNormalsContext::new(ocl_runtime.clone()).expect("Failed to create OclNormalsContext");
     let mut gpu_transform = OclTransformContext::new(ocl_runtime.clone())
         .expect("Failed to create OclTransformContext");
     let mut gpu_search =
@@ -40,6 +66,29 @@ fn main() -> Result<()> {
         OclGicpContext::new(ocl_runtime.clone()).expect("Failed to create OclGicpContext");
     let mut gpu_icp =
         OclIcpContext::new(ocl_runtime.clone()).expect("Failed to create OclIcpContext");
+
+    let mut ocl_contexts = OclContexts {
+        gpu_voxel: &mut gpu_voxel,
+        gpu_covs: &mut gpu_covs,
+        gpu_normals: &mut gpu_normals,
+        gpu_transform: &mut gpu_transform,
+        gpu_search: &mut gpu_search,
+        gpu_search_neighbors: &mut gpu_search_neighbors,
+        gpu_gicp: &mut gpu_gicp,
+        gpu_icp: &mut gpu_icp,
+    };
+
+    let mut process_times = ProcessTimes {
+        registration_pcd_center_time: Duration::new(0, 0),
+        voxel_time: Duration::new(0, 0),
+        cov_time: Duration::new(0, 0),
+        normal_time: Duration::new(0, 0),
+        transform_time: Duration::new(0, 0),
+        search_neighbor_time: Duration::new(0, 0),
+        search_neighbors_time: Duration::new(0, 0),
+        gicp_time: Duration::new(0, 0),
+        icp_time: Duration::new(0, 0),
+    };
 
     let source_pcd_path = "data/input/aist/vggt-sansouken-room-scale-7_5_voxel_025_xyz_only.pcd";
     let source_pcd = load_pcd_xyz(source_pcd_path).expect("Failed to load initial PCD file");
@@ -59,9 +108,12 @@ fn main() -> Result<()> {
 
     // Center the source points to target points
     let (_, overlaped_source_pts) = registration_pcd_center(&source_pts, &target_pts);
+    process_times.registration_pcd_center_time = start.elapsed();
 
+    let start = std::time::Instant::now();
     // Voxel downsample
-    let (d_v_source_pts, v_source_pts_num) = gpu_voxel
+    let (d_v_source_pts, v_source_pts_num) = ocl_contexts
+        .gpu_voxel
         .voxel_downsample(
             &overlaped_source_pts,
             overlaped_source_pts.nrows(),
@@ -74,7 +126,8 @@ fn main() -> Result<()> {
         v_source_pts_num
     );
 
-    let (d_v_target_pts, v_target_pts_num) = gpu_voxel
+    let (d_v_target_pts, v_target_pts_num) = ocl_contexts
+        .gpu_voxel
         .voxel_downsample(&target_pts, target_pts.nrows(), VOXEL_SIZE)
         .context("Failed to compute voxel")?;
     println!(
@@ -82,58 +135,212 @@ fn main() -> Result<()> {
         target_pts.nrows(),
         v_target_pts_num
     );
+    process_times.voxel_time = start.elapsed();
 
+    let start = std::time::Instant::now();
     // Compute covariances
-    let d_source_covs = gpu_covs
+    let d_source_covs = ocl_contexts
+        .gpu_covs
         .compute_covariances(&d_v_source_pts, v_source_pts_num)
         .context("Failed to compute covariances")?;
-    let d_target_covs = gpu_covs
+    let d_target_covs = ocl_contexts
+        .gpu_covs
         .compute_covariances(&d_v_target_pts, v_target_pts_num)
         .context("Failed to compute covariances")?;
+    process_times.cov_time = start.elapsed();
 
-    let mut transform_matrix = Array2::<f32>::eye(4);
+    let transform_matrix = Array2::<f32>::eye(4);
 
+    let icp_process_args = ICPProcessArgs {
+        d_v_source_pts: d_v_source_pts.clone(),
+        d_source_covs: d_source_covs.clone(),
+        v_source_pts_num,
+        d_v_target_pts: d_v_target_pts.clone(),
+        d_target_covs: d_target_covs.clone(),
+        v_target_pts_num,
+        transform_matrix: transform_matrix.clone(),
+    };
 
-    // Iterations of GICP
+    let start = std::time::Instant::now();
+    // Iterations of ICP
+
+    let icp_transform_matrix = icp_iteration(
+        &mut ocl_contexts,
+        &mut icp_process_args.clone(),
+        &mut process_times,
+    )?;
+
+    let elapsed = start.elapsed();
+    println!("\n=== Process times ===");
+    println!(
+        "Registration PCD Center time: {:.2?}",
+        process_times.registration_pcd_center_time
+    );
+    println!("Voxel time: {:.2?}", process_times.voxel_time);
+    println!("Covariance time: {:.2?}", process_times.cov_time);
+    println!("Normal time: {:.2?}", process_times.normal_time);
+    println!("Transform time: {:.2?}", process_times.transform_time);
+    println!(
+        "Transform time (Per 1 iteration): {:.2?}",
+        process_times.transform_time / GICP_MAX_ITERATIONS as u32
+    );
+    println!(
+        "Search Neighbor time: {:.2?}",
+        process_times.search_neighbor_time
+    );
+    println!(
+        "Search Neighbor time (Per 1 iteration): {:.2?}",
+        process_times.search_neighbor_time / GICP_MAX_ITERATIONS as u32
+    );
+    println!(
+        "Search Neighbors time: {:.2?}",
+        process_times.search_neighbors_time
+    );
+    println!(
+        "Search Neighbors time (Per 1 iteration): {:.2?}",
+        process_times.search_neighbors_time / GICP_MAX_ITERATIONS as u32
+    );
+    println!("GICP time: {:.2?}", process_times.gicp_time);
+    println!(
+        "GICP time (Per 1 iteration): {:.2?}",
+        process_times.gicp_time / GICP_MAX_ITERATIONS as u32
+    );
+    println!("ICP time: {:.2?}", process_times.icp_time);
+    println!(
+        "ICP time (Per 1 iteration): {:.2?}",
+        process_times.icp_time / GICP_MAX_ITERATIONS as u32
+    );
+    println!("Total time: {:.2?}", elapsed);
+
+    // <!--- DEBUG --->
+    // let transformed_original_source_pts = convert_dtoh(&d_transformed_source_pts, icp_process_args.v_source_pts_num)
+    //     .context("Failed to convert device to host")?;
+
+    // let transformed_original_source_pcd =
+    //     convert_array2_to_pcd(&transformed_original_source_pts, 255, 0, 0); // Red color
+    let transformed_original_source_pcd = convert_array2_to_pcd(&overlaped_source_pts, 255, 0, 0); // Red color
+    // <!--- DEBUG --->
+
+    let (d_final_transformed_source_pts, d_final_transformed_source_covs) = ocl_contexts
+        .gpu_transform
+        .apply_transform(
+            &icp_process_args.d_v_source_pts,
+            &icp_process_args.d_source_covs,
+            icp_process_args.v_source_pts_num,
+            &icp_transform_matrix,
+        )
+        .context("Failed to apply transform")?;
+
+    // <!--- DEBUG --->
+    let final_transformed_source_pts = convert_dtoh(
+        &d_final_transformed_source_pts,
+        icp_process_args.v_source_pts_num,
+    )
+    .context("Failed to convert device to host")?;
+
+    let final_transformed_source_pcd =
+        convert_array2_to_pcd(&final_transformed_source_pts, 0, 255, 0); // Green color
+    let target_pcd = convert_array2_to_pcd(&target_pts, 0, 0, 255); // Blue color
+
+    // let debug_source_pcd = convert_array2_to_pcd(&debug_source_pts, 255, 0, 255); // Blue color
+    // let mut combined_pcd = debug_source_pcd.clone();
+    let mut combined_pcd = transformed_original_source_pcd.clone();
+    // combined_pcd.extend(transformed_original_source_pcd);
+    combined_pcd.extend(final_transformed_source_pcd);
+    combined_pcd.extend(target_pcd);
+
+    let output_path = format!(
+        "data/output/test/test-gicp-v-{}-iter-{}.pcd",
+        VOXEL_SIZE, GICP_MAX_ITERATIONS
+    );
+    save_pcd_xyzrgb(&combined_pcd, &output_path)?;
+    println!("Saved combined PCD to: {}", output_path);
+
+    // <!--- DEBUG --->
+
+    Ok(())
+}
+
+struct OclContexts<'a> {
+    gpu_voxel: &'a mut OclVoxelContext,
+    gpu_covs: &'a mut OclCovContext,
+    gpu_normals: &'a mut OclNormalsContext,
+    gpu_transform: &'a mut OclTransformContext,
+    gpu_search: &'a mut OclSearchContext,
+    gpu_search_neighbors: &'a mut OclSearchNeighborsContext,
+    gpu_gicp: &'a mut OclGicpContext,
+    gpu_icp: &'a mut OclIcpContext,
+}
+
+#[derive(Clone)]
+struct ICPProcessArgs {
+    d_v_source_pts: ocl::Buffer<f32>,
+    d_source_covs: ocl::Buffer<f32>,
+    v_source_pts_num: usize,
+    d_v_target_pts: ocl::Buffer<f32>,
+    d_target_covs: ocl::Buffer<f32>,
+    v_target_pts_num: usize,
+    transform_matrix: Array2<f32>,
+}
+
+fn icp_iteration(
+    ocl_contexts: &mut OclContexts,
+    icp_args: &mut ICPProcessArgs,
+    process_times: &mut ProcessTimes,
+) -> Result<Array2<f32>> {
+    let mut transform_matrix = icp_args.transform_matrix.clone();
+
     for i in 0..GICP_MAX_ITERATIONS {
         println!("\n=== GICP Iteration {} ===", i + 1);
-    
+
+        let start = std::time::Instant::now();
         // Transform each points
-        let (d_transformed_source_pts, d_transformed_source_covs) = gpu_transform
+        let (d_transformed_source_pts, d_transformed_source_covs) = ocl_contexts
+            .gpu_transform
             .apply_transform(
-                &d_v_source_pts,
-                &d_source_covs,
-                v_source_pts_num,
+                &icp_args.d_v_source_pts,
+                &icp_args.d_source_covs,
+                icp_args.v_source_pts_num,
                 &transform_matrix,
             )
             .context("Failed to apply transform")?;
+        process_times.transform_time += start.elapsed();
 
+        let start = std::time::Instant::now();
         // Compute to find nearest neighbor pts
-        let (d_indices, d_dists_sq, indices, dists_sq) = gpu_search
+        let (d_indices, d_dists_sq, indices, dists_sq) = ocl_contexts
+            .gpu_search
             .compute_find_nearest_neighbor(
                 &d_transformed_source_pts,
-                v_source_pts_num,
-                &d_v_target_pts,
-                v_target_pts_num,
+                icp_args.v_source_pts_num,
+                &icp_args.d_v_target_pts,
+                icp_args.v_target_pts_num,
             )
             .context("Failed to compute nearest neighbor")?;
+        process_times.search_neighbor_time += start.elapsed();
 
+        let start = std::time::Instant::now();
         // Search neigghbors to compute normals
-        let (d_target_indices, d_target_dists_sq, _, _) = gpu_search_neighbors
-            .compute_find_neighbors(&d_v_target_pts, v_target_pts_num)
+        let (d_target_indices, d_target_dists_sq, _, _) = ocl_contexts
+            .gpu_search_neighbors
+            .compute_find_neighbors(&icp_args.d_v_target_pts, icp_args.v_target_pts_num)
             .context("Failed to compute self k-nearest neighbors")?;
+        process_times.search_neighbors_time += start.elapsed();
 
+        let start = std::time::Instant::now();
         // Compute normals
-        let d_target_normals = gpu_normals
+        let d_target_normals = ocl_contexts
+            .gpu_normals
             .compute_normals(
-                &d_v_target_pts,
-                v_target_pts_num,
+                &icp_args.d_v_target_pts,
+                icp_args.v_target_pts_num,
                 &d_target_indices,
                 0.0,
                 0.0,
                 0.0,
             )
             .context("Failed to compute normals")?;
+        process_times.normal_time += start.elapsed();
 
         // Debug
         // let max_dist2: f32 = VOXEL_SIZE * VOXEL_SIZE * 2.0;
@@ -145,39 +352,45 @@ fn main() -> Result<()> {
             .count();
         println!(
             "Iteration {}: Found {} nearest neighbor correspondences",
-            i + 1, valid_pairs
+            i + 1,
+            valid_pairs
         );
 
+        let start = std::time::Instant::now();
         // Compute GICP
-        let (h_matrix, b_vector) = gpu_gicp
-            .compute_gicp(
-                &d_transformed_source_pts,
-                &d_transformed_source_covs,
-                v_source_pts_num,
-                &d_v_target_pts,
-                &d_target_covs,
-                v_target_pts_num,
-                &d_indices,
-                &d_dists_sq,
-                max_dist2,
-            )
-            .context("Failed to calculate GICP")?;
+        // let (h_matrix, b_vector) = ocl_contexts.gpu_gicp
+        //     .compute_gicp(
+        //         &d_transformed_source_pts,
+        //         &d_transformed_source_covs,
+        //         icp_argsv_source_pts_num,
+        //         &d_v_target_pts,
+        //         &d_target_covs,
+        //         v_target_pts_num,
+        //         &d_indices,
+        //         &d_dists_sq,
+        //         max_dist2,
+        //     )
+        //     .context("Failed to calculate GICP")?;
+        // process_times.gicp_time += start.elapsed();
 
-        let (h_matrix, b_vector) = gpu_icp
+        let start = std::time::Instant::now();
+        let (h_matrix, b_vector) = ocl_contexts
+            .gpu_icp
             .compute_icp(
                 &d_transformed_source_pts,
-                v_source_pts_num,
-                &d_v_target_pts,
+                icp_args.v_source_pts_num,
+                &icp_args.d_v_target_pts,
                 &d_target_normals,
-                v_target_pts_num,
+                icp_args.v_target_pts_num,
                 &d_indices,
                 &d_dists_sq,
                 max_dist2,
             )
             .context("Failed to calculate ICP")?;
+        process_times.icp_time += start.elapsed();
 
         let delta_t = solve_linear_system_6x6(h_matrix, b_vector)?;
-        transform_matrix = mat4_mul( &delta_t, &transform_matrix);
+        transform_matrix = mat4_mul(&delta_t, &transform_matrix);
         // println!("Computed delta transform:\n{:?}", delta_t);
         println!("Updated transform matrix:\n{:?}", transform_matrix);
 
@@ -185,7 +398,7 @@ fn main() -> Result<()> {
         let mut sum = 0.0f32;
         let mut cnt = 0usize;
 
-        for j in 0..v_source_pts_num {
+        for j in 0..icp_args.v_source_pts_num {
             let idx = indices[j];
             if idx < 0 {
                 continue;
@@ -202,52 +415,12 @@ fn main() -> Result<()> {
         // break;
     }
 
-    let elapsed = start.elapsed();
-    println!("Total time: {:.2?}", elapsed);
-
-    // <!--- DEBUG --->
-    let transformed_original_source_pts = convert_dtoh(&d_v_source_pts, v_source_pts_num)
-        .context("Failed to convert device to host")?;
-
-    // let transformed_original_source_pcd =
-    //     convert_array2_to_pcd(&transformed_original_source_pts, 255, 0, 0); // Red color
-    let transformed_original_source_pcd =
-        convert_array2_to_pcd(&overlaped_source_pts, 255, 0, 0); // Red color
-    // <!--- DEBUG --->
-
-    let (d_final_transformed_source_pts, d_final_transformed_source_covs) = gpu_transform
-        .apply_transform(&d_v_source_pts, &d_source_covs, v_source_pts_num, &transform_matrix)
-        .context("Failed to apply transform")?;
-
-    // <!--- DEBUG --->
-    let final_transformed_source_pts =
-        convert_dtoh(&d_final_transformed_source_pts, v_source_pts_num)
-            .context("Failed to convert device to host")?;
-
-    let final_transformed_source_pcd =
-        convert_array2_to_pcd(&final_transformed_source_pts, 0, 255, 0); // Green color
-    let target_pcd = convert_array2_to_pcd(&target_pts, 0, 0, 255); // Blue color
-    
-    // let debug_source_pcd = convert_array2_to_pcd(&debug_source_pts, 255, 0, 255); // Blue color
-    // let mut combined_pcd = debug_source_pcd.clone();
-    let mut combined_pcd = transformed_original_source_pcd.clone();
-    // combined_pcd.extend(transformed_original_source_pcd);
-    combined_pcd.extend(final_transformed_source_pcd);
-    combined_pcd.extend(target_pcd);
-
-    let output_path = format!("data/output/test/test-gicp-v-{}-iter-{}.pcd", VOXEL_SIZE, GICP_MAX_ITERATIONS);
-    save_pcd_xyzrgb(
-        &combined_pcd, &output_path)?;
-    println!("Saved combined PCD to: {}", output_path);
-
-    // <!--- DEBUG --->
-
-    Ok(())
+    Ok(transform_matrix)
 }
 
 fn inverse_transform(m: &Array2<f32>) -> Array2<f32> {
     let mut inv = Array2::<f32>::eye(4);
-    
+
     // 回転成分の転置 (R^T)
     for r in 0..3 {
         for c in 0..3 {
@@ -263,7 +436,7 @@ fn inverse_transform(m: &Array2<f32>) -> Array2<f32> {
         }
         inv[[r, 3]] = -sum;
     }
-    
+
     inv
 }
 
@@ -398,7 +571,7 @@ fn convert_se3_to_matrix4(x: Array1<f64>) -> Array2<f32> {
 }
 
 // fn pcd_to_array2(pcd_points: &[PointXYZRGB]) -> Array2<f32> {
-    // fn pcd_to_array2(pcd_points: &[PointXYZT]) -> Array2<f32> {
+// fn pcd_to_array2(pcd_points: &[PointXYZT]) -> Array2<f32> {
 fn pcd_to_array2(pcd_points: &[PointXYZ]) -> Array2<f32> {
     let n = pcd_points.len();
     let mut arr = Array2::<f32>::zeros((n, 3));
@@ -448,7 +621,7 @@ fn check_device_info() -> Result<()> {
 
 fn registration_pcd_center(
     source_points: &Array2<f32>,
-    target_points: &Array2<f32>
+    target_points: &Array2<f32>,
 ) -> (Array2<f32>, Array2<f32>) {
     // Calculate centroids
     let source_centroid = source_points.mean_axis(Axis(0)).unwrap();
@@ -462,7 +635,7 @@ fn registration_pcd_center(
     transform[[0, 3]] = translation[0];
     transform[[1, 3]] = translation[1];
     transform[[2, 3]] = translation[2];
-    
+
     let n_points = source_points.nrows();
     let mut source_copy = Array2::<f32>::ones((n_points, 4));
     source_copy.slice_mut(s![.., 0..3]).assign(source_points);

@@ -107,7 +107,10 @@ impl OclGicpContext {
         d_distances: &Buffer<f32>,
         max_dist_sq: f32,
     ) -> Result<(Array2<f64>, Array1<f64>)> {
-        println!("GICP: num_source = {}, num_target = {}", num_source, num_target);
+        println!(
+            "GICP: num_source = {}, num_target = {}",
+            num_source, num_target
+        );
 
         if num_source == 0 || num_target == 0 {
             anyhow::bail!("Empty point cloud");
