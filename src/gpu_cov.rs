@@ -107,7 +107,7 @@ impl OclCovContext {
             .set_arg(0, points_buffer)
             .context("Failed to set points_buffer arg")?;
         self.kernel_func
-            .set_arg(1, num_points as u32)
+            .set_arg(1, num_points as i32)
             .context("Failed to set num_points arg")?;
         self.kernel_func
             .set_arg(2, d_covs)

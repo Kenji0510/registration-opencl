@@ -54,9 +54,9 @@ impl OclNormalsContext {
             .arg(&dummy_f32) // points
             .arg(&dummy_i32) // neighbor_indices
             .arg(0) // num_points
-            .arg(0) // vp_x (Viewpoint x)
-            .arg(0) // vp_y (Viewpoint y)
-            .arg(0) // vp_z (Viewpoint z)
+            .arg(0.0 as f32) // vp_x (Viewpoint x)
+            .arg(0.0 as f32) // vp_y (Viewpoint y)
+            .arg(0.0 as f32) // vp_z (Viewpoint z)
             .arg(&dummy_f32) // out_normals
             .build()?;
 
