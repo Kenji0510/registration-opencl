@@ -1,0 +1,548 @@
+=== Platform: NVIDIA CUDA ===
+Device: NVIDIA GeForce RTX 4080
+  Type: GPU
+  Version: 3.0
+  cl_ext_float_atomics: false
+
+=== Initializing GPU context ===
+Using Platform: NVIDIA CUDA
+Using Device:   NVIDIA GeForce RTX 4080
+
+=== Loaded PCD files ===
+Source points: 7663
+Loaded source PCD from: data/input/aist/vggt-sansouken-room-scale-7_5_voxel_025_xyz_only.pcd
+Target points: 11107
+Loaded target PCD from: data/input/aist/aist-voxelized-025.pcd
+Voxel downsampled source points: 7663 -> 4524
+Voxel downsampled target points: 11107 -> 7165
+
+=== GICP Iteration 1 ===
+
+=== GICP Iteration 2 ===
+
+=== GICP Iteration 3 ===
+
+=== GICP Iteration 4 ===
+
+=== GICP Iteration 5 ===
+
+=== GICP Iteration 6 ===
+
+=== GICP Iteration 7 ===
+
+=== GICP Iteration 8 ===
+
+=== GICP Iteration 9 ===
+
+=== GICP Iteration 10 ===
+
+=== GICP Iteration 11 ===
+
+=== GICP Iteration 12 ===
+
+=== GICP Iteration 13 ===
+
+=== GICP Iteration 14 ===
+
+=== GICP Iteration 15 ===
+
+=== GICP Iteration 16 ===
+
+=== GICP Iteration 17 ===
+
+=== GICP Iteration 18 ===
+
+=== GICP Iteration 19 ===
+
+=== GICP Iteration 20 ===
+
+=== GICP Iteration 21 ===
+
+=== GICP Iteration 22 ===
+
+=== GICP Iteration 23 ===
+
+=== GICP Iteration 24 ===
+
+=== GICP Iteration 25 ===
+
+=== GICP Iteration 26 ===
+
+=== GICP Iteration 27 ===
+
+=== GICP Iteration 28 ===
+
+=== GICP Iteration 29 ===
+
+=== GICP Iteration 30 ===
+
+=== GICP Iteration 31 ===
+
+=== GICP Iteration 32 ===
+
+=== GICP Iteration 33 ===
+
+=== GICP Iteration 34 ===
+
+=== GICP Iteration 35 ===
+
+=== GICP Iteration 36 ===
+
+=== GICP Iteration 37 ===
+
+=== GICP Iteration 38 ===
+
+=== GICP Iteration 39 ===
+
+=== GICP Iteration 40 ===
+
+=== GICP Iteration 41 ===
+
+=== GICP Iteration 42 ===
+
+=== GICP Iteration 43 ===
+
+=== GICP Iteration 44 ===
+
+=== GICP Iteration 45 ===
+
+=== GICP Iteration 46 ===
+
+=== GICP Iteration 47 ===
+
+=== GICP Iteration 48 ===
+
+=== GICP Iteration 49 ===
+
+=== GICP Iteration 50 ===
+
+=== GICP Iteration 51 ===
+
+=== GICP Iteration 52 ===
+
+=== GICP Iteration 53 ===
+
+=== GICP Iteration 54 ===
+
+=== GICP Iteration 55 ===
+
+=== GICP Iteration 56 ===
+
+=== GICP Iteration 57 ===
+
+=== GICP Iteration 58 ===
+
+=== GICP Iteration 59 ===
+
+=== GICP Iteration 60 ===
+Updated transform matrix:
+[[0.77253515, 0.012590046, -0.63484746, 0.6998153],
+ [-0.56538296, 0.4687169, -0.6787095, 0.911229],
+ [0.28901863, 0.8832587, 0.36921892, 0.3794732],
+ [0.0, 0.0, 0.0, 1.0]], shape=[4, 4], strides=[4, 1], layout=Cc (0x5), const ndim=2
+Iteration 60: RMSE = 0.28301537
+
+=== GICP Iteration 1 ===
+
+=== GICP Iteration 2 ===
+
+=== GICP Iteration 3 ===
+
+=== GICP Iteration 4 ===
+
+=== GICP Iteration 5 ===
+
+=== GICP Iteration 6 ===
+
+=== GICP Iteration 7 ===
+
+=== GICP Iteration 8 ===
+
+=== GICP Iteration 9 ===
+
+=== GICP Iteration 10 ===
+
+=== GICP Iteration 11 ===
+
+=== GICP Iteration 12 ===
+
+=== GICP Iteration 13 ===
+
+=== GICP Iteration 14 ===
+
+=== GICP Iteration 15 ===
+
+=== GICP Iteration 16 ===
+
+=== GICP Iteration 17 ===
+
+=== GICP Iteration 18 ===
+
+=== GICP Iteration 19 ===
+
+=== GICP Iteration 20 ===
+
+=== GICP Iteration 21 ===
+
+=== GICP Iteration 22 ===
+
+=== GICP Iteration 23 ===
+
+=== GICP Iteration 24 ===
+
+=== GICP Iteration 25 ===
+
+=== GICP Iteration 26 ===
+
+=== GICP Iteration 27 ===
+
+=== GICP Iteration 28 ===
+
+=== GICP Iteration 29 ===
+
+=== GICP Iteration 30 ===
+
+=== GICP Iteration 31 ===
+
+=== GICP Iteration 32 ===
+
+=== GICP Iteration 33 ===
+
+=== GICP Iteration 34 ===
+
+=== GICP Iteration 35 ===
+
+=== GICP Iteration 36 ===
+
+=== GICP Iteration 37 ===
+
+=== GICP Iteration 38 ===
+
+=== GICP Iteration 39 ===
+
+=== GICP Iteration 40 ===
+
+=== GICP Iteration 41 ===
+
+=== GICP Iteration 42 ===
+
+=== GICP Iteration 43 ===
+
+=== GICP Iteration 44 ===
+
+=== GICP Iteration 45 ===
+
+=== GICP Iteration 46 ===
+
+=== GICP Iteration 47 ===
+
+=== GICP Iteration 48 ===
+
+=== GICP Iteration 49 ===
+
+=== GICP Iteration 50 ===
+
+=== GICP Iteration 51 ===
+
+=== GICP Iteration 52 ===
+
+=== GICP Iteration 53 ===
+
+=== GICP Iteration 54 ===
+
+=== GICP Iteration 55 ===
+
+=== GICP Iteration 56 ===
+
+=== GICP Iteration 57 ===
+
+=== GICP Iteration 58 ===
+
+=== GICP Iteration 59 ===
+
+=== GICP Iteration 60 ===
+Updated transform matrix:
+[[-0.8947271, -0.3924225, -0.21323095, 0.67488265],
+ [0.44660285, -0.7893262, -0.4213192, 1.8680799],
+ [-0.0029735803, -0.4721954, 0.8814884, -0.35099542],
+ [0.0, 0.0, 0.0, 1.0]], shape=[4, 4], strides=[4, 1], layout=Cc (0x5), const ndim=2
+Iteration 60: RMSE = 0.34379295
+
+=== GICP Iteration 1 ===
+
+=== GICP Iteration 2 ===
+
+=== GICP Iteration 3 ===
+
+=== GICP Iteration 4 ===
+
+=== GICP Iteration 5 ===
+
+=== GICP Iteration 6 ===
+
+=== GICP Iteration 7 ===
+
+=== GICP Iteration 8 ===
+
+=== GICP Iteration 9 ===
+
+=== GICP Iteration 10 ===
+
+=== GICP Iteration 11 ===
+
+=== GICP Iteration 12 ===
+
+=== GICP Iteration 13 ===
+
+=== GICP Iteration 14 ===
+
+=== GICP Iteration 15 ===
+
+=== GICP Iteration 16 ===
+
+=== GICP Iteration 17 ===
+
+=== GICP Iteration 18 ===
+
+=== GICP Iteration 19 ===
+
+=== GICP Iteration 20 ===
+
+=== GICP Iteration 21 ===
+
+=== GICP Iteration 22 ===
+
+=== GICP Iteration 23 ===
+
+=== GICP Iteration 24 ===
+
+=== GICP Iteration 25 ===
+
+=== GICP Iteration 26 ===
+
+=== GICP Iteration 27 ===
+
+=== GICP Iteration 28 ===
+
+=== GICP Iteration 29 ===
+
+=== GICP Iteration 30 ===
+
+=== GICP Iteration 31 ===
+
+=== GICP Iteration 32 ===
+
+=== GICP Iteration 33 ===
+
+=== GICP Iteration 34 ===
+
+=== GICP Iteration 35 ===
+
+=== GICP Iteration 36 ===
+
+=== GICP Iteration 37 ===
+
+=== GICP Iteration 38 ===
+
+=== GICP Iteration 39 ===
+
+=== GICP Iteration 40 ===
+
+=== GICP Iteration 41 ===
+
+=== GICP Iteration 42 ===
+
+=== GICP Iteration 43 ===
+
+=== GICP Iteration 44 ===
+
+=== GICP Iteration 45 ===
+
+=== GICP Iteration 46 ===
+
+=== GICP Iteration 47 ===
+
+=== GICP Iteration 48 ===
+
+=== GICP Iteration 49 ===
+
+=== GICP Iteration 50 ===
+
+=== GICP Iteration 51 ===
+
+=== GICP Iteration 52 ===
+
+=== GICP Iteration 53 ===
+
+=== GICP Iteration 54 ===
+
+=== GICP Iteration 55 ===
+
+=== GICP Iteration 56 ===
+
+=== GICP Iteration 57 ===
+
+=== GICP Iteration 58 ===
+
+=== GICP Iteration 59 ===
+
+=== GICP Iteration 60 ===
+Updated transform matrix:
+[[0.90277535, -0.19112715, 0.38531357, 0.3054966],
+ [-0.32845575, -0.884732, 0.33070698, 0.7618824],
+ [0.27769196, -0.4251128, -0.861491, 0.35322636],
+ [0.0, 0.0, 0.0, 1.0]], shape=[4, 4], strides=[4, 1], layout=Cc (0x5), const ndim=2
+Iteration 60: RMSE = 0.33910272
+
+=== GICP Iteration 1 ===
+
+=== GICP Iteration 2 ===
+
+=== GICP Iteration 3 ===
+
+=== GICP Iteration 4 ===
+
+=== GICP Iteration 5 ===
+
+=== GICP Iteration 6 ===
+
+=== GICP Iteration 7 ===
+
+=== GICP Iteration 8 ===
+
+=== GICP Iteration 9 ===
+
+=== GICP Iteration 10 ===
+
+=== GICP Iteration 11 ===
+
+=== GICP Iteration 12 ===
+
+=== GICP Iteration 13 ===
+
+=== GICP Iteration 14 ===
+
+=== GICP Iteration 15 ===
+
+=== GICP Iteration 16 ===
+
+=== GICP Iteration 17 ===
+
+=== GICP Iteration 18 ===
+
+=== GICP Iteration 19 ===
+
+=== GICP Iteration 20 ===
+
+=== GICP Iteration 21 ===
+
+=== GICP Iteration 22 ===
+
+=== GICP Iteration 23 ===
+
+=== GICP Iteration 24 ===
+
+=== GICP Iteration 25 ===
+
+=== GICP Iteration 26 ===
+
+=== GICP Iteration 27 ===
+
+=== GICP Iteration 28 ===
+
+=== GICP Iteration 29 ===
+
+=== GICP Iteration 30 ===
+
+=== GICP Iteration 31 ===
+
+=== GICP Iteration 32 ===
+
+=== GICP Iteration 33 ===
+
+=== GICP Iteration 34 ===
+
+=== GICP Iteration 35 ===
+
+=== GICP Iteration 36 ===
+
+=== GICP Iteration 37 ===
+
+=== GICP Iteration 38 ===
+
+=== GICP Iteration 39 ===
+
+=== GICP Iteration 40 ===
+
+=== GICP Iteration 41 ===
+
+=== GICP Iteration 42 ===
+
+=== GICP Iteration 43 ===
+
+=== GICP Iteration 44 ===
+
+=== GICP Iteration 45 ===
+
+=== GICP Iteration 46 ===
+
+=== GICP Iteration 47 ===
+
+=== GICP Iteration 48 ===
+
+=== GICP Iteration 49 ===
+
+=== GICP Iteration 50 ===
+
+=== GICP Iteration 51 ===
+
+=== GICP Iteration 52 ===
+
+=== GICP Iteration 53 ===
+
+=== GICP Iteration 54 ===
+
+=== GICP Iteration 55 ===
+
+=== GICP Iteration 56 ===
+
+=== GICP Iteration 57 ===
+
+=== GICP Iteration 58 ===
+
+=== GICP Iteration 59 ===
+
+=== GICP Iteration 60 ===
+Updated transform matrix:
+[[-0.88496214, 0.14204241, 0.4434696, -0.041672446],
+ [0.30150175, 0.9005519, 0.31321493, 0.09580694],
+ [-0.3548774, 0.41089034, -0.8397806, 0.6286134],
+ [0.0, 0.0, 0.0, 1.0]], shape=[4, 4], strides=[4, 1], layout=Cc (0x5), const ndim=2
+Iteration 60: RMSE = 0.35050035
+
+=== Process times ===
+Registration PCD Center time: 215.02µs
+Voxel time: 281.93µs
+Covariance time: 1.06ms
+Normal time: 3.02ms
+Transform time: 1.82ms
+Transform time (Per 1 iteration): 30.32µs
+Search Neighbor time: 80.32ms
+Search Neighbor time (Per 1 iteration): 1.34ms
+Search Neighbors time: 193.55ms
+Search Neighbors time (Per 1 iteration): 3.23ms
+GICP time: 0.00ns
+GICP time (Per 1 iteration): 0.00ns
+ICP time: 10.48ms
+ICP time (Per 1 iteration): 174.62µs
+Total time: 295.38ms
+
+=== ICP transformed results ===
+Saved combined PCD to: data/output/transformed_data/transformed_icp-iter-60_voxel-0.25_init_icp.pcd
+Initial ICP RMSE: 0.28301537
+Saved combined PCD to: data/output/transformed_data/transformed_icp-iter-60_voxel-0.25_address_back_to_front.pcd
+Address Back to Front RMSE: 0.34379295
+Saved combined PCD to: data/output/transformed_data/transformed_icp-iter-60_voxel-0.25_address_upside_down.pcd
+Address Upside Down RMSE: 0.33910272
+Saved combined PCD to: data/output/transformed_data/transformed_icp-iter-60_voxel-0.25_address_back_to_front_and_upside_down.pcd
+Address Back to Front and Upside Down RMSE: 0.35050035

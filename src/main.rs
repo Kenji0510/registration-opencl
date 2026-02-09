@@ -42,6 +42,18 @@ struct ProcessTimes {
     icp_time: Duration,
 }
 
+#[derive(Debug, Clone)]
+struct ICPMatrixs {
+    init_icp_matrix: Array2<f32>,
+    init_icp_matrix_rmse: f32,
+    address_back_to_front: Array2<f32>,
+    address_back_to_front_rmse: f32,
+    address_upside_down: Array2<f32>,
+    address_upside_down_rmse: f32,
+    address_back_to_front_and_upside_down: Array2<f32>,
+    address_back_to_front_and_upside_down_rmse: f32,
+}
+
 fn main() -> Result<()> {
     check_device_info()?;
 
@@ -78,6 +90,17 @@ fn main() -> Result<()> {
         gpu_icp: &mut gpu_icp,
     };
 
+    let mut icp_matrixs = ICPMatrixs {
+        init_icp_matrix: Array2::<f32>::eye(4),
+        init_icp_matrix_rmse: 0.0,
+        address_back_to_front: Array2::<f32>::eye(4),
+        address_back_to_front_rmse: 0.0,
+        address_upside_down: Array2::<f32>::eye(4),
+        address_upside_down_rmse: 0.0,
+        address_back_to_front_and_upside_down: Array2::<f32>::eye(4),
+        address_back_to_front_and_upside_down_rmse: 0.0,
+    };
+
     let mut process_times = ProcessTimes {
         registration_pcd_center_time: Duration::new(0, 0),
         voxel_time: Duration::new(0, 0),
@@ -105,12 +128,13 @@ fn main() -> Result<()> {
     println!("Loaded target PCD from: {}", target_pcd_path);
 
     let start = std::time::Instant::now();
+    let start_center = std::time::Instant::now();
 
     // Center the source points to target points
     let (_, overlaped_source_pts) = registration_pcd_center(&source_pts, &target_pts);
-    process_times.registration_pcd_center_time = start.elapsed();
+    process_times.registration_pcd_center_time = start_center.elapsed();
 
-    let start = std::time::Instant::now();
+    let start_voxel = std::time::Instant::now();
     // Voxel downsample
     let (d_v_source_pts, v_source_pts_num) = ocl_contexts
         .gpu_voxel
@@ -135,9 +159,9 @@ fn main() -> Result<()> {
         target_pts.nrows(),
         v_target_pts_num
     );
-    process_times.voxel_time = start.elapsed();
+    process_times.voxel_time = start_voxel.elapsed();
 
-    let start = std::time::Instant::now();
+    let start_covs = std::time::Instant::now();
     // Compute covariances
     let d_source_covs = ocl_contexts
         .gpu_covs
@@ -147,11 +171,11 @@ fn main() -> Result<()> {
         .gpu_covs
         .compute_covariances(&d_v_target_pts, v_target_pts_num)
         .context("Failed to compute covariances")?;
-    process_times.cov_time = start.elapsed();
+    process_times.cov_time = start_covs.elapsed();
 
     let transform_matrix = Array2::<f32>::eye(4);
 
-    let icp_process_args = ICPProcessArgs {
+    let mut icp_process_args = ICPProcessArgs {
         d_v_source_pts: d_v_source_pts.clone(),
         d_source_covs: d_source_covs.clone(),
         v_source_pts_num,
@@ -161,14 +185,67 @@ fn main() -> Result<()> {
         transform_matrix: transform_matrix.clone(),
     };
 
-    let start = std::time::Instant::now();
-    // Iterations of ICP
-
-    let icp_transform_matrix = icp_iteration(
+    // Initial iterations of ICP
+    let (icp_transform_matrix, icp_rmse) = icp_iteration(
         &mut ocl_contexts,
         &mut icp_process_args.clone(),
         &mut process_times,
     )?;
+
+    icp_matrixs.init_icp_matrix = icp_transform_matrix.clone();
+    icp_matrixs.init_icp_matrix_rmse = icp_rmse;
+
+    // Back to front
+    let address_back_to_front = ndarray::array![
+        [-1.0f32, 0.0f32, 0.0f32, 0.0f32],
+        [0.0f32, -1.0f32, 0.0f32, 0.0f32],
+        [0.0f32, 0.0f32, 1.0f32, 0.0f32],
+        [0.0f32, 0.0f32, 0.0f32, 1.0f32]
+    ];
+    icp_process_args.transform_matrix = address_back_to_front;
+
+    let (icp_transform_matrix, icp_rmse) = icp_iteration(
+        &mut ocl_contexts,
+        &mut icp_process_args.clone(),
+        &mut process_times,
+    )?;
+
+    icp_matrixs.address_back_to_front = icp_transform_matrix.clone();
+    icp_matrixs.address_back_to_front_rmse = icp_rmse;
+
+    // Upside down
+    let address_upside_down = ndarray::array![
+        [1.0f32, 0.0f32, 0.0f32, 0.0f32],
+        [0.0f32, -1.0f32, 0.0f32, 0.0f32],
+        [0.0f32, 0.0f32, -1.0f32, 0.0f32],
+        [0.0f32, 0.0f32, 0.0f32, 1.0f32],
+    ];
+    icp_process_args.transform_matrix = address_upside_down;
+
+    let (icp_transform_matrix, icp_rmse) = icp_iteration(
+        &mut ocl_contexts,
+        &mut icp_process_args.clone(),
+        &mut process_times,
+    )?;
+    icp_matrixs.address_upside_down = icp_transform_matrix.clone();
+    icp_matrixs.address_upside_down_rmse = icp_rmse;
+
+    // Back to front & upside down
+    let address_back_to_front_and_upside_down = ndarray::array![
+        [-1.0f32, 0.0f32, 0.0f32, 0.0f32],
+        [0.0f32, 1.0f32, 0.0f32, 0.0f32],
+        [0.0f32, 0.0f32, -1.0f32, 0.0f32],
+        [0.0f32, 0.0f32, 0.0f32, 1.0f32],
+    ];
+
+    icp_process_args.transform_matrix = address_back_to_front_and_upside_down;
+    let (icp_transform_matrix, icp_rmse) = icp_iteration(
+        &mut ocl_contexts,
+        &mut icp_process_args.clone(),
+        &mut process_times,
+    )?;
+    icp_matrixs.address_back_to_front_and_upside_down = icp_transform_matrix.clone();
+    icp_matrixs.address_back_to_front_and_upside_down_rmse = icp_rmse;
 
     let elapsed = start.elapsed();
     println!("\n=== Process times ===");
@@ -212,13 +289,68 @@ fn main() -> Result<()> {
     );
     println!("Total time: {:.2?}", elapsed);
 
-    // <!--- DEBUG --->
-    // let transformed_original_source_pts = convert_dtoh(&d_transformed_source_pts, icp_process_args.v_source_pts_num)
-    //     .context("Failed to convert device to host")?;
+    println!("\n=== ICP transformed results ===");
+    save_processed_pcds(
+        &mut ocl_contexts,
+        &overlaped_source_pts,
+        &target_pts,
+        &icp_process_args,
+        &icp_matrixs.init_icp_matrix,
+        "init_icp",
+    )?;
+    println!("Initial ICP RMSE: {}", icp_matrixs.init_icp_matrix_rmse);
 
-    // let transformed_original_source_pcd =
-    //     convert_array2_to_pcd(&transformed_original_source_pts, 255, 0, 0); // Red color
-    let transformed_original_source_pcd = convert_array2_to_pcd(&overlaped_source_pts, 255, 0, 0); // Red color
+    save_processed_pcds(
+        &mut ocl_contexts,
+        &overlaped_source_pts,
+        &target_pts,
+        &icp_process_args,
+        &icp_matrixs.address_back_to_front,
+        "address_back_to_front",
+    )?;
+    println!(
+        "Address Back to Front RMSE: {}",
+        icp_matrixs.address_back_to_front_rmse
+    );
+
+    save_processed_pcds(
+        &mut ocl_contexts,
+        &overlaped_source_pts,
+        &target_pts,
+        &icp_process_args,
+        &icp_matrixs.address_upside_down,
+        "address_upside_down",
+    )?;
+    println!(
+        "Address Upside Down RMSE: {}",
+        icp_matrixs.address_upside_down_rmse
+    );
+
+    save_processed_pcds(
+        &mut ocl_contexts,
+        &overlaped_source_pts,
+        &target_pts,
+        &icp_process_args,
+        &icp_matrixs.address_back_to_front_and_upside_down,
+        "address_back_to_front_and_upside_down",
+    )?;
+    println!(
+        "Address Back to Front and Upside Down RMSE: {}",
+        icp_matrixs.address_back_to_front_and_upside_down_rmse
+    );
+
+    Ok(())
+}
+
+fn save_processed_pcds(
+    ocl_contexts: &mut OclContexts,
+    overlapped_source_pts: &Array2<f32>,
+    target_pts: &Array2<f32>,
+    icp_process_args: &ICPProcessArgs,
+    transform_matrix: &Array2<f32>,
+    rotate_type: &str,
+) -> Result<()> {
+    let transformed_original_source_pcd = convert_array2_to_pcd(&overlapped_source_pts, 255, 0, 0); // Red color
     // <!--- DEBUG --->
 
     let (d_final_transformed_source_pts, d_final_transformed_source_covs) = ocl_contexts
@@ -227,7 +359,7 @@ fn main() -> Result<()> {
             &icp_process_args.d_v_source_pts,
             &icp_process_args.d_source_covs,
             icp_process_args.v_source_pts_num,
-            &icp_transform_matrix,
+            transform_matrix,
         )
         .context("Failed to apply transform")?;
 
@@ -250,13 +382,11 @@ fn main() -> Result<()> {
     combined_pcd.extend(target_pcd);
 
     let output_path = format!(
-        "data/output/test/test-gicp-v-{}-iter-{}.pcd",
-        VOXEL_SIZE, GICP_MAX_ITERATIONS
+        "data/output/transformed_data/transformed_icp-iter-{}_voxel-{}_{}.pcd",
+        GICP_MAX_ITERATIONS, VOXEL_SIZE, rotate_type
     );
     save_pcd_xyzrgb(&combined_pcd, &output_path)?;
     println!("Saved combined PCD to: {}", output_path);
-
-    // <!--- DEBUG --->
 
     Ok(())
 }
@@ -287,8 +417,9 @@ fn icp_iteration(
     ocl_contexts: &mut OclContexts,
     icp_args: &mut ICPProcessArgs,
     process_times: &mut ProcessTimes,
-) -> Result<Array2<f32>> {
+) -> Result<(Array2<f32>, f32)> {
     let mut transform_matrix = icp_args.transform_matrix.clone();
+    let mut rmse: f32 = 0.0;
 
     for i in 0..GICP_MAX_ITERATIONS {
         println!("\n=== GICP Iteration {} ===", i + 1);
@@ -350,13 +481,13 @@ fn icp_iteration(
             .zip(dists_sq.iter())
             .filter(|(idx, dist)| **idx >= 0 && **dist <= max_dist2)
             .count();
-        println!(
-            "Iteration {}: Found {} nearest neighbor correspondences",
-            i + 1,
-            valid_pairs
-        );
+        // println!(
+        //     "Iteration {}: Found {} nearest neighbor correspondences",
+        //     i + 1,
+        //     valid_pairs
+        // );
 
-        let start = std::time::Instant::now();
+        // let start = std::time::Instant::now();
         // Compute GICP
         // let (h_matrix, b_vector) = ocl_contexts.gpu_gicp
         //     .compute_gicp(
@@ -392,7 +523,7 @@ fn icp_iteration(
         let delta_t = solve_linear_system_6x6(h_matrix, b_vector)?;
         transform_matrix = mat4_mul(&delta_t, &transform_matrix);
         // println!("Computed delta transform:\n{:?}", delta_t);
-        println!("Updated transform matrix:\n{:?}", transform_matrix);
+        // println!("Updated transform matrix:\n{:?}", transform_matrix);
 
         // Check convergence (RMSE)
         let mut sum = 0.0f32;
@@ -409,13 +540,17 @@ fn icp_iteration(
             sum += dists_sq[j];
             cnt += 1;
         }
-        let rmse = (sum / cnt as f32).sqrt();
-        println!("Iteration {}: RMSE = {}", i + 1, rmse);
+        rmse = (sum / cnt as f32).sqrt();
+
+        if i == (GICP_MAX_ITERATIONS - 1) {
+            println!("Updated transform matrix:\n{:?}", transform_matrix);
+            println!("Iteration {}: RMSE = {}", i + 1, rmse);
+        }
 
         // break;
     }
 
-    Ok(transform_matrix)
+    Ok((transform_matrix, rmse))
 }
 
 fn inverse_transform(m: &Array2<f32>) -> Array2<f32> {
