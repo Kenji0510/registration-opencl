@@ -124,6 +124,21 @@ impl OclCovContext {
 
         q.finish().context("Failed to finish queue")?;
 
-        Ok(d_covs.clone())
+        // Create a new buffer and copy the result to avoid overwriting on next call
+        let result_buffer = Buffer::<f32>::builder()
+            .queue(self.rt.queue.clone())
+            .flags(MemFlags::new().read_write())
+            .len(num_points * 9)
+            .build()
+            .context("Failed to create result buffer")?;
+
+        d_covs.cmd()
+            .copy(&result_buffer, Some(0), Some(num_points * 9))
+            .enq()
+            .context("Failed to copy covariances buffer")?;
+
+        q.finish()?;
+
+        Ok(result_buffer)
     }
 }

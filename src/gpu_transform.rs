@@ -184,9 +184,33 @@ impl OclTransformContext {
 
         q.finish().context("Failed to finish queue")?;
 
-        let d_out_pts = self.buf_out_pts.as_ref().unwrap().clone();
-        let d_out_covs = self.buf_out_covs.as_ref().unwrap().clone();
+        // Create new buffers and copy the results to avoid overwriting on next call
+        let result_pts = Buffer::<f32>::builder()
+            .queue(self.rt.queue.clone())
+            .flags(MemFlags::new().read_write())
+            .len(num_points * 3)
+            .build()
+            .context("Failed to create result pts buffer")?;
 
-        Ok((d_out_pts, d_out_covs))
+        let result_covs = Buffer::<f32>::builder()
+            .queue(self.rt.queue.clone())
+            .flags(MemFlags::new().read_write())
+            .len(num_points * 9)
+            .build()
+            .context("Failed to create result covs buffer")?;
+
+        d_out_pts.cmd()
+            .copy(&result_pts, Some(0), Some(num_points * 3))
+            .enq()
+            .context("Failed to copy transformed pts buffer")?;
+
+        d_out_covs.cmd()
+            .copy(&result_covs, Some(0), Some(num_points * 9))
+            .enq()
+            .context("Failed to copy transformed covs buffer")?;
+
+        q.finish()?;
+
+        Ok((result_pts, result_covs))
     }
 }

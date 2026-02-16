@@ -355,7 +355,23 @@ impl OclVoxelContext {
             // println!("Total (with xfer): {:.3} ms", htod_ms + elapsed_kernel + dtoh_ms);
             // println!("===================================");
 
-            Ok((d_output.clone(), valid_count))
+            // Create a new buffer and copy the result to avoid overwriting on next call
+            let result_buffer = Buffer::<f32>::builder()
+                .queue(self.rt.queue.clone())
+                .flags(MemFlags::new().read_write())
+                .len(valid_count * 3)
+                .build()
+                .context("Failed to create result buffer")?;
+
+            // Copy only the valid data (valid_count * 3 elements)
+            d_output.cmd()
+                .copy(&result_buffer, Some(0), Some(valid_count * 3))
+                .enq()
+                .context("Failed to copy output buffer")?;
+            
+            self.rt.queue.finish()?;
+
+            Ok((result_buffer, valid_count))
         }
     }
 }

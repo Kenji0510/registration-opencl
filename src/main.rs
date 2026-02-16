@@ -113,11 +113,11 @@ fn main() -> Result<()> {
         icp_time: Duration::new(0, 0),
     };
 
-    let source_pcd_path = "data/input/aist/vggt-sansouken-room-scale-7_5_voxel_025_xyz_only.pcd";
+    let source_pcd_path = "data/input/H927/vggt-data_output_voxel_025_xyz_only.pcd";
     let source_pcd = load_pcd_xyz(source_pcd_path).expect("Failed to load initial PCD file");
     let source_pts = pcd_to_array2(&source_pcd);
 
-    let target_pcd_path = "data/input/aist/aist-voxelized-025.pcd";
+    let target_pcd_path = "data/input/H927/lab-room_voxel_025_xyz_only.pcd";
     let target_pcd = load_pcd_xyz(target_pcd_path).expect("Failed to load initial PCD file");
     let target_pts = pcd_to_array2(&target_pcd);
 
