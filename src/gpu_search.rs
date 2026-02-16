@@ -107,6 +107,10 @@ impl OclSearchContext {
             anyhow::bail!("Number of source points is zero");
         }
 
+        anyhow::ensure!(source_pts.len() >= num_source * 3, "source buffer too small");
+        anyhow::ensure!(target_pts.len() >= num_target * 3, "target buffer too small");
+
+
         let q = self.rt.queue.clone();
         Self::ensure_buffer(
             &q,

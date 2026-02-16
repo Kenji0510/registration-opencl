@@ -364,11 +364,12 @@ impl OclVoxelContext {
                 .context("Failed to create result buffer")?;
 
             // Copy only the valid data (valid_count * 3 elements)
-            d_output.cmd()
+            d_output
+                .cmd()
                 .copy(&result_buffer, Some(0), Some(valid_count * 3))
                 .enq()
                 .context("Failed to copy output buffer")?;
-            
+
             self.rt.queue.finish()?;
 
             Ok((result_buffer, valid_count))

@@ -132,7 +132,8 @@ impl OclCovContext {
             .build()
             .context("Failed to create result buffer")?;
 
-        d_covs.cmd()
+        d_covs
+            .cmd()
             .copy(&result_buffer, Some(0), Some(num_points * 9))
             .enq()
             .context("Failed to copy covariances buffer")?;

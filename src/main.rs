@@ -17,10 +17,17 @@ use registration_opencl::{
     gpu_search_neighbors::OclSearchNeighborsContext,
     gpu_transform::OclTransformContext,
     gpu_voxel::OclVoxelContext,
-    ocl_context::OclRuntime,
+    icp_iterations::{self, ICPProcessArgs02, icp_registration},
+    ocl_context::{OclContexts, OclRuntime},
     operate_pcd_file::{
         PointXYZ, PointXYZRGB, PointXYZT, load_pcd_xyz, load_pcd_xyzrgb, load_pcd_xyzt,
-        save_pcd_xyzrgb,
+        save_pcd_xyz, save_pcd_xyzrgb,
+    },
+    rotation_matrix::{
+        create_fb_flip_matrix, create_lr_flip_matrix, create_rot_90_x_matrix,
+        create_rot_90_y_matrix, create_rot_90_z_matrix, create_rot_180_x_matrix,
+        create_rot_180_y_matrix, create_rot_180_z_matrix, create_rot_minus_90_x_matrix,
+        create_rot_minus_90_y_matrix, create_rot_minus_90_z_matrix, create_ud_flip_matrix,
     },
 };
 
@@ -28,6 +35,8 @@ const VOXEL_SIZE: f32 = 0.25;
 const WARMUP_ITERATIONS: usize = 3;
 const BENCHMARK_ITERATIONS: usize = 10;
 const GICP_MAX_ITERATIONS: usize = 60;
+const ICP_MAX_ITERATIONS: usize = 60;
+const TOLERANCE: f64 = 0.015;
 
 #[derive(Clone)]
 struct ProcessTimes {
@@ -173,171 +182,348 @@ fn main() -> Result<()> {
         .context("Failed to compute covariances")?;
     process_times.cov_time = start_covs.elapsed();
 
-    let transform_matrix = Array2::<f32>::eye(4);
+    // let transform_matrix = Array2::<f32>::eye(4);
 
-    let mut icp_process_args = ICPProcessArgs {
-        d_v_source_pts: d_v_source_pts.clone(),
-        d_source_covs: d_source_covs.clone(),
-        v_source_pts_num,
-        d_v_target_pts: d_v_target_pts.clone(),
-        d_target_covs: d_target_covs.clone(),
-        v_target_pts_num,
-        transform_matrix: transform_matrix.clone(),
-    };
+    // let mut icp_process_args = ICPProcessArgs {
+    //     d_v_source_pts: d_v_source_pts.clone(),
+    //     d_source_covs: d_source_covs.clone(),
+    //     v_source_pts_num,
+    //     d_v_target_pts: d_v_target_pts.clone(),
+    //     d_target_covs: d_target_covs.clone(),
+    //     v_target_pts_num,
+    //     transform_matrix: transform_matrix.clone(),
+    // };
 
-    // Initial iterations of ICP
-    let (icp_transform_matrix, icp_rmse) = icp_iteration(
-        &mut ocl_contexts,
-        &mut icp_process_args.clone(),
-        &mut process_times,
-    )?;
+    // // Initial iterations of ICP
+    // let (icp_transform_matrix, icp_rmse) = icp_iteration(
+    //     &mut ocl_contexts,
+    //     &mut icp_process_args.clone(),
+    //     &mut process_times,
+    // )?;
 
-    icp_matrixs.init_icp_matrix = icp_transform_matrix.clone();
-    icp_matrixs.init_icp_matrix_rmse = icp_rmse;
+    // icp_matrixs.init_icp_matrix = icp_transform_matrix.clone();
+    // icp_matrixs.init_icp_matrix_rmse = icp_rmse;
+
+    let flip_rot_transforms = vec![
+        ("Initial", Array2::<f32>::eye(4)),
+        ("LR_Flip_Reverse-Y", create_lr_flip_matrix()),
+        ("UD_Flip_Reverse-Z", create_ud_flip_matrix()),
+        ("Front-Back_Flip_Reverse-X", create_fb_flip_matrix()),
+        ("Rot_180_Z", create_rot_180_z_matrix()),
+        ("Rot_180_Y", create_rot_180_y_matrix()),
+        ("Rot_180_X", create_rot_180_x_matrix()),
+        (
+            "LR+UD_Flip",
+            create_lr_flip_matrix().dot(&create_ud_flip_matrix()),
+        ),
+        (
+            "LR+FB_Flip",
+            create_lr_flip_matrix().dot(&create_fb_flip_matrix()),
+        ),
+        (
+            "UD+FB_Flip",
+            create_ud_flip_matrix().dot(&create_fb_flip_matrix()),
+        ),
+        ("Rot90_X", create_rot_90_x_matrix()),
+        ("Rot-90_X", create_rot_minus_90_x_matrix()),
+        ("Rot90_Y", create_rot_90_y_matrix()),
+        ("Rot-90_Y", create_rot_minus_90_y_matrix()),
+        ("Rot90_Z", create_rot_90_z_matrix()),
+        ("Rot-90_Z", create_rot_minus_90_z_matrix()),
+    ];
+
+    let mut candidates: Vec<(
+        &str,
+        Array2<f32>,
+        Array2<f32>,
+        Array2<f32>,
+        Array2<f32>,
+        f32,
+    )> = Vec::new();
+
+    for (label, flip_rot_matrix) in flip_rot_transforms {
+        // === Downsample the source and target points ===
+        let (d_v_source_pts, v_source_pts_num) = ocl_contexts
+            .gpu_voxel
+            .voxel_downsample(&source_pts, source_pts.nrows(), VOXEL_SIZE)
+            .context("Failed to compute voxel")?;
+
+        let (d_v_target_pts, v_target_pts_num) = ocl_contexts
+            .gpu_voxel
+            .voxel_downsample(&target_pts, target_pts.nrows(), VOXEL_SIZE)
+            .context("Failed to compute voxel")?;
+
+        let v_source_pts = convert_dtoh(&d_v_source_pts, v_source_pts_num)
+            .context("Failed to copy device memory to host memory")?;
+
+        let v_target_pts = convert_dtoh(&d_v_target_pts, v_target_pts_num)
+            .context("Failed to copy device memory to host memory")?;
+
+        // === Centralize the source points to the target points ===
+        // Apply flip/rotation to the source points
+        // Extract 3x3 rotation part from 4x4 matrix
+        let rotation_3x3 = flip_rot_matrix.slice(s![0..3, 0..3]);
+        let fliped_rotated_v_source_pts = v_source_pts.dot(&rotation_3x3.t());
+
+        let (centralized_matrix, centralized_v_source_pts) =
+            registration_pcd_center(&fliped_rotated_v_source_pts, &v_target_pts);
+
+        let mut icp_process_args = ICPProcessArgs02 {
+            d_v_source_pts,
+            d_v_source_covs: d_source_covs.clone(),
+            v_source_pts_num,
+            d_v_target_pts,
+            v_target_pts_num,
+            flip_rot_matrix: flip_rot_matrix.clone(),
+            transform_matrix: centralized_matrix.clone(),
+        };
+
+        // === compute ICP ===
+        let (icp_transform_matrix, icp_rmse) = icp_registration(
+            &mut ocl_contexts,
+            &mut icp_process_args,
+            VOXEL_SIZE,
+            ICP_MAX_ITERATIONS,
+            TOLERANCE,
+        )?;
+
+        candidates.push((
+            label,
+            v_source_pts,
+            flip_rot_matrix,
+            centralized_matrix,
+            icp_transform_matrix,
+            icp_rmse,
+        ));
+    }
+
+    // === Select the best result based on RMSE ===
+    let mut best_rmse = f32::MAX;
+    let mut best_label = String::from("None");
+    let mut best_final_pts = Array2::<f32>::zeros((0, 3));
+    let mut best_tf = Array2::<f32>::eye(4);
+
+    for (
+        label,
+        v_source_pts,
+        flip_rot_matrix,
+        centralized_matrix,
+        icp_transform_matrix,
+        icp_rmse,
+    ) in candidates.clone()
+    {
+        if icp_rmse < best_rmse {
+            best_rmse = icp_rmse;
+            best_label = label.to_string();
+            best_final_pts = v_source_pts;
+            // icp_transform_matrix already contains centralized_matrix
+            best_tf = icp_transform_matrix.clone();
+        }
+    }
+
+    println!("----------------------------------------");
+    println!("Best: {} (RMSE: {:.6})", best_label, best_rmse);
+    println!("Best Transform:\n{:?}", best_tf);
+
+    let best_transformed_pts =
+        best_final_pts.dot(&best_tf.slice(s![0..3, 0..3]).t()) + &best_tf.slice(s![0..3, 3]);
+
+    let source_pts_pcd = convert_array2_to_pcd(&source_pts, 255, 0, 0); // Red color
+    let best_pts_pcd = convert_array2_to_pcd(&best_transformed_pts, 0, 255, 0); // Green color
+    let target_pts_pcd = convert_array2_to_pcd(&target_pts, 0, 0, 255); // Blue color
+
+    let mut combined_pcd = source_pts_pcd.clone();
+    combined_pcd.extend(best_pts_pcd);
+    combined_pcd.extend(target_pts_pcd);
+
+    let save_file_path = format!(
+        "data/output/transformed_data/best_transformed_icp_voxel_{}_{}.pcd",
+        VOXEL_SIZE, best_label
+    );
+    save_pcd_xyzrgb(&combined_pcd, &save_file_path)?;
+
+    // === Debug: Save all candidates' results ===
+    println!("\n=== Debug: Saving all candidates' transformed PCDs ===");
+    for (
+        label,
+        v_source_pts,
+        flip_rot_matrix,
+        centralized_matrix,
+        icp_transform_matrix,
+        icp_rmse,
+    ) in candidates.clone()
+    {
+        let transformed_pts = v_source_pts
+            .dot(&flip_rot_matrix.slice(s![0..3, 0..3]).t())
+            // .dot(&centralized_matrix.slice(s![0..3, 0..3]).t())
+            .dot(&icp_transform_matrix.slice(s![0..3, 0..3]).t());
+
+        let transformed_pts = v_source_pts.dot(&icp_transform_matrix.slice(s![0..3, 0..3]).t())
+            + &icp_transform_matrix.slice(s![0..3, 3]);
+
+        let source_pcd = convert_array2_to_pcd(&source_pts, 255, 0, 0); // Red color
+        let transformed_pcd = convert_array2_to_pcd(&transformed_pts, 0, 255, 0); // Green color
+        let target_pcd = convert_array2_to_pcd(&target_pts, 0, 0, 255); // Blue color
+
+        let mut combined_pcd = source_pcd.clone();
+        combined_pcd.extend(transformed_pcd);
+        combined_pcd.extend(target_pcd);
+
+        let save_file_path = format!(
+            "data/output/transformed_data/Debug/transformed_icp_voxel_{}_{}.pcd",
+            VOXEL_SIZE, label
+        );
+        save_pcd_xyzrgb(&combined_pcd, &save_file_path)?;
+        println!("Saved transformed PCD for {}: {}", label, save_file_path);
+    }
+
+    // let mut icp_process_args_02 = ICPProcessArgs02 {
+    //     d_v_centralized_pts
+    // }
 
     // Back to front
-    let address_back_to_front = ndarray::array![
-        [-1.0f32, 0.0f32, 0.0f32, 0.0f32],
-        [0.0f32, -1.0f32, 0.0f32, 0.0f32],
-        [0.0f32, 0.0f32, 1.0f32, 0.0f32],
-        [0.0f32, 0.0f32, 0.0f32, 1.0f32]
-    ];
-    icp_process_args.transform_matrix = address_back_to_front;
+    // let address_back_to_front = ndarray::array![
+    //     [-1.0f32, 0.0f32, 0.0f32, 0.0f32],
+    //     [0.0f32, -1.0f32, 0.0f32, 0.0f32],
+    //     [0.0f32, 0.0f32, 1.0f32, 0.0f32],
+    //     [0.0f32, 0.0f32, 0.0f32, 1.0f32]
+    // ];
+    // icp_process_args.transform_matrix = address_back_to_front;
 
-    let (icp_transform_matrix, icp_rmse) = icp_iteration(
-        &mut ocl_contexts,
-        &mut icp_process_args.clone(),
-        &mut process_times,
-    )?;
+    // let (icp_transform_matrix, icp_rmse) = icp_iteration(
+    //     &mut ocl_contexts,
+    //     &mut icp_process_args.clone(),
+    //     &mut process_times,
+    // )?;
 
-    icp_matrixs.address_back_to_front = icp_transform_matrix.clone();
-    icp_matrixs.address_back_to_front_rmse = icp_rmse;
+    // icp_matrixs.address_back_to_front = icp_transform_matrix.clone();
+    // icp_matrixs.address_back_to_front_rmse = icp_rmse;
 
-    // Upside down
-    let address_upside_down = ndarray::array![
-        [1.0f32, 0.0f32, 0.0f32, 0.0f32],
-        [0.0f32, -1.0f32, 0.0f32, 0.0f32],
-        [0.0f32, 0.0f32, -1.0f32, 0.0f32],
-        [0.0f32, 0.0f32, 0.0f32, 1.0f32],
-    ];
-    icp_process_args.transform_matrix = address_upside_down;
+    // // Upside down
+    // let address_upside_down = ndarray::array![
+    //     [1.0f32, 0.0f32, 0.0f32, 0.0f32],
+    //     [0.0f32, -1.0f32, 0.0f32, 0.0f32],
+    //     [0.0f32, 0.0f32, -1.0f32, 0.0f32],
+    //     [0.0f32, 0.0f32, 0.0f32, 1.0f32],
+    // ];
+    // icp_process_args.transform_matrix = address_upside_down;
 
-    let (icp_transform_matrix, icp_rmse) = icp_iteration(
-        &mut ocl_contexts,
-        &mut icp_process_args.clone(),
-        &mut process_times,
-    )?;
-    icp_matrixs.address_upside_down = icp_transform_matrix.clone();
-    icp_matrixs.address_upside_down_rmse = icp_rmse;
+    // let (icp_transform_matrix, icp_rmse) = icp_iteration(
+    //     &mut ocl_contexts,
+    //     &mut icp_process_args.clone(),
+    //     &mut process_times,
+    // )?;
+    // icp_matrixs.address_upside_down = icp_transform_matrix.clone();
+    // icp_matrixs.address_upside_down_rmse = icp_rmse;
 
-    // Back to front & upside down
-    let address_back_to_front_and_upside_down = ndarray::array![
-        [-1.0f32, 0.0f32, 0.0f32, 0.0f32],
-        [0.0f32, 1.0f32, 0.0f32, 0.0f32],
-        [0.0f32, 0.0f32, -1.0f32, 0.0f32],
-        [0.0f32, 0.0f32, 0.0f32, 1.0f32],
-    ];
+    // // Back to front & upside down
+    // let address_back_to_front_and_upside_down = ndarray::array![
+    //     [-1.0f32, 0.0f32, 0.0f32, 0.0f32],
+    //     [0.0f32, 1.0f32, 0.0f32, 0.0f32],
+    //     [0.0f32, 0.0f32, -1.0f32, 0.0f32],
+    //     [0.0f32, 0.0f32, 0.0f32, 1.0f32],
+    // ];
 
-    icp_process_args.transform_matrix = address_back_to_front_and_upside_down;
-    let (icp_transform_matrix, icp_rmse) = icp_iteration(
-        &mut ocl_contexts,
-        &mut icp_process_args.clone(),
-        &mut process_times,
-    )?;
-    icp_matrixs.address_back_to_front_and_upside_down = icp_transform_matrix.clone();
-    icp_matrixs.address_back_to_front_and_upside_down_rmse = icp_rmse;
+    // icp_process_args.transform_matrix = address_back_to_front_and_upside_down;
+    // let (icp_transform_matrix, icp_rmse) = icp_iteration(
+    //     &mut ocl_contexts,
+    //     &mut icp_process_args.clone(),
+    //     &mut process_times,
+    // )?;
+    // icp_matrixs.address_back_to_front_and_upside_down = icp_transform_matrix.clone();
+    // icp_matrixs.address_back_to_front_and_upside_down_rmse = icp_rmse;
 
-    let elapsed = start.elapsed();
-    println!("\n=== Process times ===");
-    println!(
-        "Registration PCD Center time: {:.2?}",
-        process_times.registration_pcd_center_time
-    );
-    println!("Voxel time: {:.2?}", process_times.voxel_time);
-    println!("Covariance time: {:.2?}", process_times.cov_time);
-    println!("Normal time: {:.2?}", process_times.normal_time);
-    println!("Transform time: {:.2?}", process_times.transform_time);
-    println!(
-        "Transform time (Per 1 iteration): {:.2?}",
-        process_times.transform_time / GICP_MAX_ITERATIONS as u32
-    );
-    println!(
-        "Search Neighbor time: {:.2?}",
-        process_times.search_neighbor_time
-    );
-    println!(
-        "Search Neighbor time (Per 1 iteration): {:.2?}",
-        process_times.search_neighbor_time / GICP_MAX_ITERATIONS as u32
-    );
-    println!(
-        "Search Neighbors time: {:.2?}",
-        process_times.search_neighbors_time
-    );
-    println!(
-        "Search Neighbors time (Per 1 iteration): {:.2?}",
-        process_times.search_neighbors_time / GICP_MAX_ITERATIONS as u32
-    );
-    println!("GICP time: {:.2?}", process_times.gicp_time);
-    println!(
-        "GICP time (Per 1 iteration): {:.2?}",
-        process_times.gicp_time / GICP_MAX_ITERATIONS as u32
-    );
-    println!("ICP time: {:.2?}", process_times.icp_time);
-    println!(
-        "ICP time (Per 1 iteration): {:.2?}",
-        process_times.icp_time / GICP_MAX_ITERATIONS as u32
-    );
-    println!("Total time: {:.2?}", elapsed);
+    // let elapsed = start.elapsed();
+    // println!("\n=== Process times ===");
+    // println!(
+    //     "Registration PCD Center time: {:.2?}",
+    //     process_times.registration_pcd_center_time
+    // );
+    // println!("Voxel time: {:.2?}", process_times.voxel_time);
+    // println!("Covariance time: {:.2?}", process_times.cov_time);
+    // println!("Normal time: {:.2?}", process_times.normal_time);
+    // println!("Transform time: {:.2?}", process_times.transform_time);
+    // println!(
+    //     "Transform time (Per 1 iteration): {:.2?}",
+    //     process_times.transform_time / GICP_MAX_ITERATIONS as u32
+    // );
+    // println!(
+    //     "Search Neighbor time: {:.2?}",
+    //     process_times.search_neighbor_time
+    // );
+    // println!(
+    //     "Search Neighbor time (Per 1 iteration): {:.2?}",
+    //     process_times.search_neighbor_time / GICP_MAX_ITERATIONS as u32
+    // );
+    // println!(
+    //     "Search Neighbors time: {:.2?}",
+    //     process_times.search_neighbors_time
+    // );
+    // println!(
+    //     "Search Neighbors time (Per 1 iteration): {:.2?}",
+    //     process_times.search_neighbors_time / GICP_MAX_ITERATIONS as u32
+    // );
+    // println!("GICP time: {:.2?}", process_times.gicp_time);
+    // println!(
+    //     "GICP time (Per 1 iteration): {:.2?}",
+    //     process_times.gicp_time / GICP_MAX_ITERATIONS as u32
+    // );
+    // println!("ICP time: {:.2?}", process_times.icp_time);
+    // println!(
+    //     "ICP time (Per 1 iteration): {:.2?}",
+    //     process_times.icp_time / GICP_MAX_ITERATIONS as u32
+    // );
+    // println!("Total time: {:.2?}", elapsed);
 
-    println!("\n=== ICP transformed results ===");
-    save_processed_pcds(
-        &mut ocl_contexts,
-        &overlaped_source_pts,
-        &target_pts,
-        &icp_process_args,
-        &icp_matrixs.init_icp_matrix,
-        "init_icp",
-    )?;
-    println!("Initial ICP RMSE: {}", icp_matrixs.init_icp_matrix_rmse);
+    // println!("\n=== ICP transformed results ===");
+    // save_processed_pcds(
+    //     &mut ocl_contexts,
+    //     &overlaped_source_pts,
+    //     &target_pts,
+    //     &icp_process_args,
+    //     &icp_matrixs.init_icp_matrix,
+    //     "init_icp",
+    // )?;
+    // println!("Initial ICP RMSE: {}", icp_matrixs.init_icp_matrix_rmse);
 
-    save_processed_pcds(
-        &mut ocl_contexts,
-        &overlaped_source_pts,
-        &target_pts,
-        &icp_process_args,
-        &icp_matrixs.address_back_to_front,
-        "address_back_to_front",
-    )?;
-    println!(
-        "Address Back to Front RMSE: {}",
-        icp_matrixs.address_back_to_front_rmse
-    );
+    // save_processed_pcds(
+    //     &mut ocl_contexts,
+    //     &overlaped_source_pts,
+    //     &target_pts,
+    //     &icp_process_args,
+    //     &icp_matrixs.address_back_to_front,
+    //     "address_back_to_front",
+    // )?;
+    // println!(
+    //     "Address Back to Front RMSE: {}",
+    //     icp_matrixs.address_back_to_front_rmse
+    // );
 
-    save_processed_pcds(
-        &mut ocl_contexts,
-        &overlaped_source_pts,
-        &target_pts,
-        &icp_process_args,
-        &icp_matrixs.address_upside_down,
-        "address_upside_down",
-    )?;
-    println!(
-        "Address Upside Down RMSE: {}",
-        icp_matrixs.address_upside_down_rmse
-    );
+    // save_processed_pcds(
+    //     &mut ocl_contexts,
+    //     &overlaped_source_pts,
+    //     &target_pts,
+    //     &icp_process_args,
+    //     &icp_matrixs.address_upside_down,
+    //     "address_upside_down",
+    // )?;
+    // println!(
+    //     "Address Upside Down RMSE: {}",
+    //     icp_matrixs.address_upside_down_rmse
+    // );
 
-    save_processed_pcds(
-        &mut ocl_contexts,
-        &overlaped_source_pts,
-        &target_pts,
-        &icp_process_args,
-        &icp_matrixs.address_back_to_front_and_upside_down,
-        "address_back_to_front_and_upside_down",
-    )?;
-    println!(
-        "Address Back to Front and Upside Down RMSE: {}",
-        icp_matrixs.address_back_to_front_and_upside_down_rmse
-    );
+    // save_processed_pcds(
+    //     &mut ocl_contexts,
+    //     &overlaped_source_pts,
+    //     &target_pts,
+    //     &icp_process_args,
+    //     &icp_matrixs.address_back_to_front_and_upside_down,
+    //     "address_back_to_front_and_upside_down",
+    // )?;
+    // println!(
+    //     "Address Back to Front and Upside Down RMSE: {}",
+    //     icp_matrixs.address_back_to_front_and_upside_down_rmse
+    // );
 
     Ok(())
 }
@@ -389,17 +575,6 @@ fn save_processed_pcds(
     println!("Saved combined PCD to: {}", output_path);
 
     Ok(())
-}
-
-struct OclContexts<'a> {
-    gpu_voxel: &'a mut OclVoxelContext,
-    gpu_covs: &'a mut OclCovContext,
-    gpu_normals: &'a mut OclNormalsContext,
-    gpu_transform: &'a mut OclTransformContext,
-    gpu_search: &'a mut OclSearchContext,
-    gpu_search_neighbors: &'a mut OclSearchNeighborsContext,
-    gpu_gicp: &'a mut OclGicpContext,
-    gpu_icp: &'a mut OclIcpContext,
 }
 
 #[derive(Clone)]
@@ -474,8 +649,8 @@ fn icp_iteration(
         process_times.normal_time += start.elapsed();
 
         // Debug
-        // let max_dist2: f32 = VOXEL_SIZE * VOXEL_SIZE * 2.0;
-        let max_dist2: f32 = VOXEL_SIZE * 1.5;
+        let max_dist2: f32 = VOXEL_SIZE * VOXEL_SIZE;
+        // let max_dist2: f32 = VOXEL_SIZE * 1.5;
         let valid_pairs = indices
             .iter()
             .zip(dists_sq.iter())

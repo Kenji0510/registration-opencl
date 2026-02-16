@@ -199,12 +199,14 @@ impl OclTransformContext {
             .build()
             .context("Failed to create result covs buffer")?;
 
-        d_out_pts.cmd()
+        d_out_pts
+            .cmd()
             .copy(&result_pts, Some(0), Some(num_points * 3))
             .enq()
             .context("Failed to copy transformed pts buffer")?;
 
-        d_out_covs.cmd()
+        d_out_covs
+            .cmd()
             .copy(&result_covs, Some(0), Some(num_points * 9))
             .enq()
             .context("Failed to copy transformed covs buffer")?;

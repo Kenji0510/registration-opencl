@@ -7,5 +7,7 @@ pub mod gpu_search;
 pub mod gpu_search_neighbors;
 pub mod gpu_transform;
 pub mod gpu_voxel;
+pub mod icp_iterations;
 pub mod ocl_context;
 pub mod operate_pcd_file;
+pub mod rotation_matrix;
